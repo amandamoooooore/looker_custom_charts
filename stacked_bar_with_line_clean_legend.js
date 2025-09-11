@@ -42,7 +42,13 @@ looker.plugins.visualizations.add({
       type: "string",
       default: "#7e8080,#7e8080,#9EE9E8,#252B5B,#161A3C,#38687D,#C5CFF1,#62D4D1,#161A3A",
       section: "Style"
-  }
+    },
+    series_labels: {
+       label: "Custom Series Labels (JSON: {\"Field Label\":\"Legend Label\"})",
+       type: "string",
+       section: "Style",
+       placeholder: "{\"Calls\":\"Phone Calls\",\"Emails\":\"Outbound Emails\"}"
+    }
   },
 
   create: function (element, config) {
