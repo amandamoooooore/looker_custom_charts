@@ -1,4 +1,4 @@
-// Utility: load a script once, return a Promise
+// --- load a script once ---
 function loadScriptOnce(src) {
   return new Promise((resolve, reject) => {
     if (document.querySelector(`script[src="${src}"]`)) return resolve();
@@ -14,13 +14,14 @@ looker.plugins.visualizations.add({
   id: "stacked_bar_with_line_clean_legend",
   label: "Stacked Bar + Line (hide empty series)",
 
+  // ---- Options shown in Looker side panel ----
   options: {
-    // ---- DATA ----
+    // DATA
     x_dim: {
       label: "X-Axis Dimension",
       type: "string",
       display: "select",
-      values: {},                 
+      values: {},            // object map: {field_name: "Label"}
       section: "Data"
     },
     line_measure: {
@@ -38,7 +39,7 @@ looker.plugins.visualizations.add({
       section: "Data"
     },
 
-    // ---- BEHAVIOR ----
+    // BEHAVIOR
     treat_zero_as_empty: {
       label: "Hide series that are all 0",
       type: "boolean",
@@ -46,7 +47,7 @@ looker.plugins.visualizations.add({
       section: "Behavior"
     },
 
-    // ---- STYLE ----
+    // STYLE
     custom_colors: {
       label: "Custom Color Palette (comma-separated HEX codes)",
       type: "string",
@@ -61,7 +62,7 @@ looker.plugins.visualizations.add({
     }
   },
 
-  create(element, config) {
+  create(element) {
     element.innerHTML = "<div id='sbwl_chart' style='width:100%;height:100%;'></div>";
     this._hcReady = (async () => {
       await loadScriptOnce("https://code.highcharts.com/highcharts.js");
@@ -80,56 +81,50 @@ looker.plugins.visualizations.add({
     const dims = queryResponse.fields.dimension_like || [];
     const meas = queryResponse.fields.measure_like || [];
 
-    // --- Build choice maps for selects
+    // ---- Build choice maps for the selects
     const dimChoices = {};
     dims.forEach(d => dimChoices[d.name] = d.label_short || d.label || d.name);
 
     const measChoices = {};
     meas.forEach(m => measChoices[m.name] = m.label_short || m.label || m.name);
 
-    // --- Provide sensible defaults
+    // ---- Defaults (once)
     if (!config.x_dim && dims[0]) config.x_dim = dims[0].name;
     if (!config.line_measure && meas[0]) config.line_measure = meas[0].name;
     if (!config.stacked_measures || config.stacked_measures.length === 0) {
       config.stacked_measures = meas.filter(m => m.name !== config.line_measure).map(m => m.name);
     }
 
-    // --- Re-register ONLY the select options so the side panel shows Data/Behavior/Style correctly
-    this.trigger('registerOptions', {
-      options: {
-        x_dim:            { values: dimChoices, section: "Data" },
-        line_measure:     { values: measChoices, section: "Data" },
-        stacked_measures: { values: measChoices, section: "Data" }
-        // do NOT include custom_colors or series_labels here, or they'll turn into [object Object]
-      }
-    });
+    // ---- Register/refresh the OPTIONS PANEL
+    this.options.x_dim.values = dimChoices;
+    this.options.line_measure.values = measChoices;
+    this.options.stacked_measures.values = measChoices;
+    this.trigger('registerOptions', this.options); // refreshes the panel (Data/Behavior/Style)
 
-    // --- Parse custom color palette
+    // ---- Parse custom color palette (force non-styled mode so JS colors stick)
     const palette = (config.custom_colors || "")
-      .split(/\s*,\s*/)            // split by commas, trim spaces
-      .map(c => c.replace(/;$/, "")) // drop trailing semicolons if pasted
+      .split(/\s*,\s*/)
+      .map(c => c.replace(/;$/, ""))
       .filter(Boolean);
 
-    // --- Parse custom legend labels map
+    // ---- Parse custom legend label map
     let labelMap = {};
     if (typeof config.series_labels === "string" && config.series_labels.trim()) {
       try { labelMap = JSON.parse(config.series_labels); }
-      catch (e) { console.warn("Invalid JSON in series_labels:", e); }
+      catch(e) { console.warn("Invalid JSON in series_labels:", e); }
     }
+    const labelFor = (field) => {
+      const def = field.label_short || field.label || field.name;
+      return labelMap[def] || def;
+    };
 
-    // --- Categories (X axis)
+    // ---- X Axis categories
     const xField = this._fieldByName(dims, config.x_dim) || dims[0];
     const categories = xField
       ? data.map(r => (r[xField.name] && (r[xField.name].rendered || r[xField.name].value)) || "")
       : data.map((_, i) => String(i + 1));
 
-    // --- Helper: map field label through overrides
-    const displayNameFor = (field) => {
-      const def = field.label_short || field.label || field.name;
-      return labelMap[def] || def;
-    };
-
-    // --- Build stacked column series
+    // ---- Build stacked column series
     const stackedSeries = (config.stacked_measures || [])
       .map(n => this._fieldByName(meas, n))
       .filter(Boolean)
@@ -140,15 +135,15 @@ looker.plugins.visualizations.add({
           return v == null ? null : Number(v);
         });
         return {
-          name: displayNameFor(m),
+          name: labelFor(m),
           type: "column",
           data: vals,
           stacking: "normal"
-          // no per-series color -> global palette applies
+          // no per-series 'color' -> lets 'colors:' palette apply
         };
       });
 
-    // --- Optional line series
+    // ---- Optional line series
     let lineSeries = null;
     if (config.line_measure) {
       const lm = this._fieldByName(meas, config.line_measure);
@@ -159,29 +154,31 @@ looker.plugins.visualizations.add({
           return v == null ? null : Number(v);
         });
         lineSeries = {
-          name: displayNameFor(lm),
+          name: labelFor(lm),
           type: "spline",
           yAxis: 1,
           data: vals,
           marker: { enabled: true }
-          // uncomment to force a specific line colour:
+          // If you want a fixed line color, uncomment:
           // color: "#111111"
         };
       }
     }
 
-    // --- Filter away empty series so legend doesn't show them
+    // ---- Hide empty series (so legend doesn't show them)
     const treatZero = !!config.treat_zero_as_empty;
     const isEmpty = arr => !arr.some(v => v != null && (!treatZero ? true : v !== 0));
-
     const cleanedStacked = stackedSeries.filter(s => !isEmpty(s.data));
     const finalSeries = (lineSeries ? cleanedStacked.concat([lineSeries]) : cleanedStacked)
       .filter(s => !isEmpty(s.data));
 
-    // --- Render chart with palette
+    // ---- Render
     Highcharts.chart("sbwl_chart", {
-      chart: { spacing: [10,10,10,10] },
-      colors: palette.length ? palette : undefined,
+      chart: {
+        spacing: [10,10,10,10],
+        styledMode: false        
+      },
+      colors: palette.length ? palette : undefined,  
       title: { text: null },
       xAxis: { categories, tickmarkPlacement: "on" },
       yAxis: [
