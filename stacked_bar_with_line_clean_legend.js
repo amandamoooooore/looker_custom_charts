@@ -36,7 +36,13 @@ looker.plugins.visualizations.add({
       label: "Hide series that are all 0",
       type: "boolean",
       default: true
-    }
+    },
+    custom_colors: {
+      label: "Custom Color Palette (comma-separated HEX codes)",
+      type: "string",
+      default: "#7e8080,#7e8080,#9EE9E8,#252B5B,#161A3C,#38687D,#C5CFF1,#62D4D1,#161A3A",
+      section: "Style"
+  }
   },
 
   create: function (element, config) {
