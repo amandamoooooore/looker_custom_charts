@@ -21,7 +21,7 @@ looker.plugins.visualizations.add({
       label: "X-Axis Dimension",
       type: "string",
       display: "select",
-      values: {},            // object map: {field_name: "Label"}
+      values: {},            
       section: "Data"
     },
     line_measure: {
@@ -59,6 +59,19 @@ looker.plugins.visualizations.add({
       type: "string",
       section: "Style",
       placeholder: "{\"Calls\":\"Phone Calls\",\"Emails\":\"Outbound Emails\"}"
+    },
+    // NEW: axis titles
+    yaxis_left_title: {
+      label: "Y Axis (Left) Title",
+      type: "string",
+      section: "Style",
+      default: ""
+    },
+    yaxis_right_title: {
+      label: "Y Axis (Right) Title",
+      type: "string",
+      section: "Style",
+      default: ""
     }
   },
 
@@ -99,7 +112,7 @@ looker.plugins.visualizations.add({
     this.options.x_dim.values = dimChoices;
     this.options.line_measure.values = measChoices;
     this.options.stacked_measures.values = measChoices;
-    this.trigger('registerOptions', this.options); // refreshes the panel (Data/Behavior/Style)
+    this.trigger('registerOptions', this.options);
 
     // ---- Parse custom color palette (force non-styled mode so JS colors stick)
     const palette = (config.custom_colors || "")
@@ -139,7 +152,6 @@ looker.plugins.visualizations.add({
           type: "column",
           data: vals,
           stacking: "normal"
-          // no per-series 'color' -> lets 'colors:' palette apply
         };
       });
 
@@ -158,9 +170,8 @@ looker.plugins.visualizations.add({
           type: "spline",
           yAxis: 1,
           data: vals,
-          marker: { enabled: true }
-          // If you want a fixed line color, uncomment:
-          // color: "#111111"
+          marker: { enabled: true },
+          color: "#7e8080"
         };
       }
     }
@@ -176,14 +187,15 @@ looker.plugins.visualizations.add({
     Highcharts.chart("sbwl_chart", {
       chart: {
         spacing: [10,10,10,10],
-        styledMode: false        
+        styledMode: false
       },
-      colors: palette.length ? palette : undefined,  
+      exporting: { enabled: false },           
+      colors: palette.length ? palette : undefined,
       title: { text: null },
       xAxis: { categories, tickmarkPlacement: "on" },
       yAxis: [
-        { title: { text: null } },
-        { title: { text: null }, opposite: true }
+        { title: { text: config.yaxis_left_title || null } },  
+        { title: { text: config.yaxis_right_title || null }, opposite: true } 
       ],
       legend: { enabled: true },
       tooltip: { shared: true },
