@@ -21,7 +21,7 @@ looker.plugins.visualizations.add({
       label: "X-Axis Dimension",
       type: "string",
       display: "select",
-      values: {},            
+      values: {},
       section: "Data"
     },
     line_measure: {
@@ -46,6 +46,12 @@ looker.plugins.visualizations.add({
       default: true,
       section: "Behavior"
     },
+    show_stack_totals: {
+      label: "Show total label on top of each stack",
+      type: "boolean",
+      default: true,
+      section: "Behavior"
+    },
 
     // STYLE
     custom_colors: {
@@ -60,7 +66,6 @@ looker.plugins.visualizations.add({
       section: "Style",
       placeholder: "{\"Calls\":\"Phone Calls\",\"Emails\":\"Outbound Emails\"}"
     },
-    // NEW: axis titles
     yaxis_left_title: {
       label: "Y Axis (Left) Title",
       type: "string",
@@ -114,7 +119,7 @@ looker.plugins.visualizations.add({
     this.options.stacked_measures.values = measChoices;
     this.trigger('registerOptions', this.options);
 
-    // ---- Parse custom color palette (force non-styled mode so JS colors stick)
+    // ---- Parse custom color palette
     const palette = (config.custom_colors || "")
       .split(/\s*,\s*/)
       .map(c => c.replace(/;$/, ""))
@@ -189,14 +194,31 @@ looker.plugins.visualizations.add({
         spacing: [10,10,10,10],
         styledMode: false
       },
-      exporting: { enabled: false },           
+      exporting: { enabled: false }, // hide hamburger
       colors: palette.length ? palette : undefined,
       title: { text: null },
       xAxis: { categories, tickmarkPlacement: "on" },
+
+      // Y axes with optional titles + stack totals on the primary (left) axis
       yAxis: [
-        { title: { text: config.yaxis_left_title || null } },  
-        { title: { text: config.yaxis_right_title || null }, opposite: true } 
+        {
+          title: { text: config.yaxis_left_title || null },
+          stackLabels: {
+            enabled: !!config.show_stack_totals && cleanedStacked.length > 0,
+            style: { fontWeight: "bold", color: "#666" },
+            // Hide label if the total is 0 or null
+            formatter: function () {
+              const v = this.total;
+              return (v == null || v === 0) ? "" : Highcharts.numberFormat(v, 0);
+            }
+          }
+        },
+        {
+          title: { text: config.yaxis_right_title || null },
+          opposite: true
+        }
       ],
+
       legend: { enabled: true },
       tooltip: { shared: true },
       plotOptions: {
