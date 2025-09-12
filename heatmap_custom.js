@@ -16,91 +16,28 @@ looker.plugins.visualizations.add({
 
   options: {
     // ---- DATA ----
-    x_dim: {
-      label: "X Dimension",
-      type: "string",
-      display: "select",
-      values: {},
-      section: "Data"
-    },
-    y_dim: {
-      label: "Y Dimension",
-      type: "string",
-      display: "select",
-      values: {},
-      section: "Data"
-    },
-    value_measure: {
-      label: "Value Measure",
-      type: "string",
-      display: "select",
-      values: {},
-      section: "Data"
-    },
+    x_dim: { label: "X Dimension", type: "string", display: "select", values: {}, section: "Data" },
+    y_dim: { label: "Y Dimension", type: "string", display: "select", values: {}, section: "Data" },
+    value_measure: { label: "Value Measure", type: "string", display: "select", values: {}, section: "Data" },
 
     // ---- STYLE ----
-    x_axis_title: {
-      label: "X Axis Title",
-      type: "string",
-      default: "",
-      section: "Style"
-    },
-    y_axis_title: {
-      label: "Y Axis Title",
-      type: "string",
-      default: "",
-      section: "Style"
-    },
-    heat_start_color: {
-      label: "Gradient Start HEX",
-      type: "string",
-      default: "#E6F2FF",
-      section: "Style"
-    },
-    heat_end_color: {
-      label: "Gradient End HEX",
-      type: "string",
-      default: "#007AFF",
-      section: "Style"
-    },
-    reverse_x_axis: {
-      label: "Reverse X Axis",
-      type: "boolean",
-      default: false,
-      section: "Style"
-    },
-    cell_border_color: {
-      label: "Cell Border Color (HEX or 'transparent')",
-      type: "string",
-      default: "transparent",
-      section: "Style"
-    },
-    cell_border_width: {
-      label: "Cell Border Width",
-      type: "number",
-      default: 0,
-      section: "Style"
-    },
-    show_data_labels: {
-      label: "Show values in cells",
-      type: "boolean",
-      default: true,
-      section: "Style"
-    },
+    x_axis_title: { label: "X Axis Title", type: "string", default: "", section: "Style" },
+    y_axis_title: { label: "Y Axis Title", type: "string", default: "", section: "Style" },
+    heat_start_color: { label: "Gradient Start HEX", type: "string", default: "#E6F2FF", section: "Style" },
+    heat_end_color: { label: "Gradient End HEX", type: "string", default: "#007AFF", section: "Style" },
+    reverse_x_axis: { label: "Reverse X Axis", type: "boolean", default: false, section: "Style" },
+    cell_border_color: { label: "Cell Border Color (HEX or 'transparent')", type: "string", default: "transparent", section: "Style" },
+    cell_border_width: { label: "Cell Border Width", type: "number", default: 0, section: "Style" },
+    show_data_labels: { label: "Show values in cells", type: "boolean", default: true, section: "Style" },
+    row_height: { label: "Row Height (px)", type: "number", default: 32, section: "Style" },
+    max_visible_rows: { label: "Max Visible Rows (scroll if more)", type: "number", default: 15, section: "Style" },
 
     // ---- BEHAVIOR ----
-    treat_zero_as_null: {
-      label: "Treat 0 as empty",
-      type: "boolean",
-      default: false,
-      section: "Behavior"
-    }
+    treat_zero_as_null: { label: "Treat 0 as empty", type: "boolean", default: false, section: "Behavior" }
   },
 
   create(element) {
-    // Fill the available tile space; Looker will set the container height.
     element.innerHTML = "<div id='hm_chart' style='width:100%;height:100%;'></div>";
-
     // Load Highcharts core + heatmap + accessibility 
     this._hcReady = (async () => {
       await loadScriptOnce("https://code.highcharts.com/highcharts.js");
@@ -109,9 +46,7 @@ looker.plugins.visualizations.add({
     })();
   },
 
-  _fieldByName(fields, name) {
-    return fields.find(f => f.name === name);
-  },
+  _fieldByName(fields, name) { return fields.find(f => f.name === name); },
 
   async update(data, element, config, queryResponse) {
     await this._hcReady;
@@ -120,14 +55,12 @@ looker.plugins.visualizations.add({
     const meas = queryResponse.fields.measure_like || [];
 
     // Build select choices
-    const dimChoices = {};
-    dims.forEach(d => dimChoices[d.name] = d.label_short || d.label || d.name);
-    const measChoices = {};
-    meas.forEach(m => measChoices[m.name] = m.label_short || m.label || m.name);
+    const dimChoices = {}; dims.forEach(d => dimChoices[d.name] = d.label_short || d.label || d.name);
+    const measChoices = {}; meas.forEach(m => measChoices[m.name] = m.label_short || m.label || m.name);
 
     // Defaults
     if (!config.x_dim && dims[0]) config.x_dim = dims[0].name;
-    if (!config.y_dim && dims[1]) config.y_dim = dims[1].name || dims[0].name;
+    if (!config.y_dim && (dims[1] || dims[0])) config.y_dim = (dims[1] ? dims[1].name : dims[0].name);
     if (!config.value_measure && meas[0]) config.value_measure = meas[0].name;
 
     // Register/refresh options panel
@@ -152,7 +85,8 @@ looker.plugins.visualizations.add({
       const cell = row[field.name];
       if (!cell) return null;
       const val = (cell.rendered ?? cell.value);
-      return (val === undefined || val === null || val === "") ? null : val;
+      // treat blanks as null; (add other placeholders if you see them)
+      return (val === undefined || val === null || String(val).trim() === "") ? null : val;
     };
     const getNumeric = (row, field) => {
       const cell = row[field.name];
@@ -161,57 +95,67 @@ looker.plugins.visualizations.add({
       return Number.isFinite(n) ? n : null;
     };
 
-    // Build category arrays (ordered uniques), skipping rows where X or Y is null/blank
+    // Build categories & points, skipping rows where X or Y is null/blank
     const categoriesX = [];
     const categoriesY = [];
-    const filteredRows = [];
+    const rowsFiltered = [];
 
     data.forEach(row => {
       const xLabel = getRendered(row, xF);
       const yLabel = getRendered(row, yF);
-      if (xLabel == null || yLabel == null) return; // skip rows with null X or Y
-      filteredRows.push(row);
-      const x = String(xLabel);
-      const y = String(yLabel);
-      if (!categoriesX.includes(x)) categoriesX.push(x);
-      if (!categoriesY.includes(y)) categoriesY.push(y);
+      if (xLabel == null || yLabel == null) return;
+      rowsFiltered.push(row);
+      const xs = String(xLabel);
+      const ys = String(yLabel);
+      if (!categoriesX.includes(xs)) categoriesX.push(xs);
+      if (!categoriesY.includes(ys)) categoriesY.push(ys);
     });
 
-    // Map categories to indices
+    // Index maps
     const xIndex = new Map(categoriesX.map((c, i) => [c, i]));
     const yIndex = new Map(categoriesY.map((c, i) => [c, i]));
 
-    // Build heatmap points: [x, y, value]
+    // Points [x, y, value]
+    const treatZero = !!config.treat_zero_as_null;
     const points = [];
-    const zeroIsNull = !!config.treat_zero_as_null;
-
-    filteredRows.forEach(row => {
+    rowsFiltered.forEach(row => {
       const xLabel = String(getRendered(row, xF));
       const yLabel = String(getRendered(row, yF));
       const num = getNumeric(row, vF);
-      const value = (zeroIsNull && num === 0) ? null : num;
-
+      const value = (treatZero && num === 0) ? null : num;
       const xi = xIndex.get(xLabel);
       const yi = yIndex.get(yLabel);
       if (xi != null && yi != null) points.push([xi, yi, value]);
     });
 
-    // Dynamic sizes
-    const containerHeight = element.clientHeight || container.clientHeight || 400;
-    const plotPadding = 60; // approximate top/bottom padding inside chart area
-    const symbolHeight = Math.max(120, containerHeight - plotPadding); // color bar height
+    // --- Layout sizing ---
+    const totalRows = categoriesY.length;
+    const rowH = Number.isFinite(+config.row_height) && +config.row_height > 0 ? +config.row_height : 32;
+    const maxVisible = Math.max(1, Number.isFinite(+config.max_visible_rows) ? +config.max_visible_rows : 15);
+
+    // approximate vertical padding for titles/labels so the plot fits nicely
+    const V_PAD = 120; // tweak if needed for your theme
+    const visiblePlotHeight = Math.min(totalRows, maxVisible) * rowH;
+    const totalPlotHeight   = Math.max(visiblePlotHeight, totalRows * rowH);
+
+    // container height = visible plot + padding; scroll area minHeight = total plot + padding
+    const chartHeight = visiblePlotHeight + V_PAD;
+    const legendSymbolHeight = visiblePlotHeight; // start value; HC will stretch if needed
 
     // Gradient colors
     const start = (config.heat_start_color || "#E6F2FF").trim();
     const end   = (config.heat_end_color   || "#007AFF").trim();
 
-    // Render
     Highcharts.chart("hm_chart", {
       chart: {
         type: "heatmap",
-        styledMode: false,         
+        styledMode: false,
         spacing: [10,10,10,10],
-        height: containerHeight     
+        height: chartHeight,
+        scrollablePlotArea: {
+          minHeight: totalPlotHeight + V_PAD,
+          scrollPositionY: 0
+        }
       },
       exporting: { enabled: false }, 
       title: { text: null },
@@ -224,22 +168,22 @@ looker.plugins.visualizations.add({
       yAxis: {
         categories: categoriesY,
         title: { text: config.y_axis_title || null },
-        reversed: true // like the demo; flip to false if you prefer bottom→top
+        reversed: true,
+        tickInterval: 1,                 
+        labels: { step: 1 }             
       },
 
       colorAxis: {
         min: 0,
         minColor: start,
         maxColor: end
-        // (alternatively use stops: [[0,start],[1,end]])
       },
 
-      // Make the color scale (legend) span the full plot height on the right
       legend: {
         align: "right",
         layout: "vertical",
         verticalAlign: "middle",
-        symbolHeight: symbolHeight
+        symbolHeight: legendSymbolHeight
       },
 
       tooltip: {
