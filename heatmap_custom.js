@@ -85,7 +85,6 @@ looker.plugins.visualizations.add({
       const cell = row[field.name];
       if (!cell) return null;
       const val = (cell.rendered ?? cell.value);
-      // treat blanks as null; (add other placeholders if you see them)
       return (val === undefined || val === null || String(val).trim() === "") ? null : val;
     };
     const getNumeric = (row, field) => {
@@ -133,14 +132,11 @@ looker.plugins.visualizations.add({
     const rowH = Number.isFinite(+config.row_height) && +config.row_height > 0 ? +config.row_height : 32;
     const maxVisible = Math.max(1, Number.isFinite(+config.max_visible_rows) ? +config.max_visible_rows : 15);
 
-    // approximate vertical padding for titles/labels so the plot fits nicely
-    const V_PAD = 120; // tweak if needed for your theme
+    const V_PAD = 120; // vertical padding for titles/labels
     const visiblePlotHeight = Math.min(totalRows, maxVisible) * rowH;
     const totalPlotHeight   = Math.max(visiblePlotHeight, totalRows * rowH);
 
-    // container height = visible plot + padding; scroll area minHeight = total plot + padding
     const chartHeight = visiblePlotHeight + V_PAD;
-    const legendSymbolHeight = visiblePlotHeight; // start value; HC will stretch if needed
 
     // Gradient colors
     const start = (config.heat_start_color || "#E6F2FF").trim();
@@ -155,6 +151,23 @@ looker.plugins.visualizations.add({
         scrollablePlotArea: {
           minHeight: totalPlotHeight + V_PAD,
           scrollPositionY: 0
+        },
+        // keep the legend's colour bar exactly as tall as the plot area
+        events: {
+          load: function () {
+            const chart = this;
+            const syncLegendHeight = () => {
+              if (chart.legend) {
+                const h = chart.plotHeight;
+                if (chart.legend.options.symbolHeight !== h) {
+                  chart.legend.update({ symbolHeight: h }, false);
+                  chart.redraw(false);
+                }
+              }
+            };
+            syncLegendHeight();
+            Highcharts.addEvent(chart, 'redraw', syncLegendHeight);
+          }
         }
       },
       exporting: { enabled: false }, 
@@ -169,8 +182,8 @@ looker.plugins.visualizations.add({
         categories: categoriesY,
         title: { text: config.y_axis_title || null },
         reversed: true,
-        tickInterval: 1,                 
-        labels: { step: 1 }             
+        tickInterval: 1,
+        labels: { step: 1 }
       },
 
       colorAxis: {
@@ -183,7 +196,7 @@ looker.plugins.visualizations.add({
         align: "right",
         layout: "vertical",
         verticalAlign: "middle",
-        symbolHeight: legendSymbolHeight
+        symbolHeight: visiblePlotHeight // initial; load/redraw handler will sync to plotHeight
       },
 
       tooltip: {
