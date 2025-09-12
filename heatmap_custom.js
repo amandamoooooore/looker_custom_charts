@@ -152,21 +152,23 @@ looker.plugins.visualizations.add({
           minHeight: totalPlotHeight + V_PAD,
           scrollPositionY: 0
         },
-        // keep the legend's colour bar exactly as tall as the plot area
+        // Keep the legend bar aligned exactly with the plot area
         events: {
           load: function () {
             const chart = this;
-            const syncLegendHeight = () => {
-              if (chart.legend) {
-                const h = chart.plotHeight;
-                if (chart.legend.options.symbolHeight !== h) {
-                  chart.legend.update({ symbolHeight: h }, false);
-                  chart.redraw(false);
-                }
-              }
+            const syncLegend = () => {
+              if (!chart.legend) return;
+              const h = chart.plotHeight;
+              const yTop = chart.plotTop;  
+              chart.legend.update({
+                verticalAlign: 'top',
+                y: yTop,
+                symbolHeight: h
+              }, false);
+              chart.redraw(false);
             };
-            syncLegendHeight();
-            Highcharts.addEvent(chart, 'redraw', syncLegendHeight);
+            syncLegend();
+            Highcharts.addEvent(chart, 'redraw', syncLegend);
           }
         }
       },
@@ -189,14 +191,22 @@ looker.plugins.visualizations.add({
       colorAxis: {
         min: 0,
         minColor: start,
-        maxColor: end
+        maxColor: end,
+        labels: {
+          align: 'right',
+          reserveSpace: true
+        },
+        tickLength: 0
       },
 
       legend: {
         align: "right",
         layout: "vertical",
-        verticalAlign: "middle",
-        symbolHeight: visiblePlotHeight // initial; load/redraw handler will sync to plotHeight
+        verticalAlign: "top", // will be re-set with exact y in load/redraw
+        y: 0,
+        symbolHeight: visiblePlotHeight,
+        symbolPadding: 6,
+        margin: 12
       },
 
       tooltip: {
