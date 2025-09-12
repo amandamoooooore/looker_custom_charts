@@ -142,24 +142,30 @@ looker.plugins.visualizations.add({
     const start = (config.heat_start_color || "#E6F2FF").trim();
     const end   = (config.heat_end_color   || "#007AFF").trim();
 
+    // Reserve a bit more space on the right for labels so nothing clips
+    const RIGHT_PAD = 24;
+    // padding above & below the colour bar for labels (approx label height)
+    const LABEL_PAD = 12; // tweak if your font is larger
+
     Highcharts.chart("hm_chart", {
       chart: {
         type: "heatmap",
         styledMode: false,
-        spacing: [10,10,10,10],
+        spacing: [10,10,10,RIGHT_PAD],
         height: chartHeight,
         scrollablePlotArea: {
           minHeight: totalPlotHeight + V_PAD,
           scrollPositionY: 0
         },
-        // Keep the legend bar aligned exactly with the plot area
+        // Keep the legend bar aligned exactly with the visible plot area,
+        // with small top/bottom margins so labels are fully visible.
         events: {
           load: function () {
             const chart = this;
             const syncLegend = () => {
               if (!chart.legend) return;
-              const h = chart.plotHeight;
-              const yTop = chart.plotTop;  
+              const h = Math.max(20, chart.plotHeight - 2 * LABEL_PAD);
+              const yTop = chart.plotTop + LABEL_PAD; // start below top labels
               chart.legend.update({
                 verticalAlign: 'top',
                 y: yTop,
@@ -192,9 +198,11 @@ looker.plugins.visualizations.add({
         min: 0,
         minColor: start,
         maxColor: end,
+        reversed: false,                 // ensure min at bottom, max at top
         labels: {
           align: 'right',
-          reserveSpace: true
+          reserveSpace: true,
+          x: 0                              // keep tight to the bar
         },
         tickLength: 0
       },
@@ -202,9 +210,9 @@ looker.plugins.visualizations.add({
       legend: {
         align: "right",
         layout: "vertical",
-        verticalAlign: "top", // will be re-set with exact y in load/redraw
+        verticalAlign: "top",
         y: 0,
-        symbolHeight: visiblePlotHeight,
+        symbolHeight: Math.max(20, visiblePlotHeight - 2 * LABEL_PAD),
         symbolPadding: 6,
         margin: 12
       },
