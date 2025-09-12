@@ -85,6 +85,7 @@ looker.plugins.visualizations.add({
       const cell = row[field.name];
       if (!cell) return null;
       const val = (cell.rendered ?? cell.value);
+      // treat blanks as null; (add other placeholders if you see them)
       return (val === undefined || val === null || String(val).trim() === "") ? null : val;
     };
     const getNumeric = (row, field) => {
@@ -132,50 +133,28 @@ looker.plugins.visualizations.add({
     const rowH = Number.isFinite(+config.row_height) && +config.row_height > 0 ? +config.row_height : 32;
     const maxVisible = Math.max(1, Number.isFinite(+config.max_visible_rows) ? +config.max_visible_rows : 15);
 
-    const V_PAD = 120; // vertical padding for titles/labels
+    // approximate vertical padding for titles/labels so the plot fits nicely
+    const V_PAD = 120; // tweak if needed for your theme
     const visiblePlotHeight = Math.min(totalRows, maxVisible) * rowH;
     const totalPlotHeight   = Math.max(visiblePlotHeight, totalRows * rowH);
 
+    // container height = visible plot + padding; scroll area minHeight = total plot + padding
     const chartHeight = visiblePlotHeight + V_PAD;
+    const legendSymbolHeight = visiblePlotHeight; // start value; HC will stretch if needed
 
     // Gradient colors
     const start = (config.heat_start_color || "#E6F2FF").trim();
     const end   = (config.heat_end_color   || "#007AFF").trim();
 
-    // Reserve a bit more space on the right for labels so nothing clips
-    const RIGHT_PAD = 24;
-    // padding above & below the colour bar for labels (approx label height)
-    const LABEL_PAD = 12; // tweak if your font is larger
-
     Highcharts.chart("hm_chart", {
       chart: {
         type: "heatmap",
         styledMode: false,
-        spacing: [10,10,10,RIGHT_PAD],
+        spacing: [10,10,10,10],
         height: chartHeight,
         scrollablePlotArea: {
           minHeight: totalPlotHeight + V_PAD,
           scrollPositionY: 0
-        },
-        // Keep the legend bar aligned exactly with the visible plot area,
-        // with small top/bottom margins so labels are fully visible.
-        events: {
-          load: function () {
-            const chart = this;
-            const syncLegend = () => {
-              if (!chart.legend) return;
-              const h = Math.max(20, chart.plotHeight - 2 * LABEL_PAD);
-              const yTop = chart.plotTop + LABEL_PAD; // start below top labels
-              chart.legend.update({
-                verticalAlign: 'top',
-                y: yTop,
-                symbolHeight: h
-              }, false);
-              chart.redraw(false);
-            };
-            syncLegend();
-            Highcharts.addEvent(chart, 'redraw', syncLegend);
-          }
         }
       },
       exporting: { enabled: false }, 
@@ -190,31 +169,21 @@ looker.plugins.visualizations.add({
         categories: categoriesY,
         title: { text: config.y_axis_title || null },
         reversed: true,
-        tickInterval: 1,
-        labels: { step: 1 }
+        tickInterval: 1,                 
+        labels: { step: 1 }             
       },
 
       colorAxis: {
         min: 0,
         minColor: start,
-        maxColor: end,
-        reversed: false,                 // ensure min at bottom, max at top
-        labels: {
-          align: 'right',
-          reserveSpace: true,
-          x: 0                              // keep tight to the bar
-        },
-        tickLength: 0
+        maxColor: end
       },
 
       legend: {
         align: "right",
         layout: "vertical",
-        verticalAlign: "top",
-        y: 0,
-        symbolHeight: Math.max(20, visiblePlotHeight - 2 * LABEL_PAD),
-        symbolPadding: 6,
-        margin: 12
+        verticalAlign: "middle",
+        symbolHeight: legendSymbolHeight
       },
 
       tooltip: {
