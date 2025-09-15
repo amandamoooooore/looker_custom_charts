@@ -16,42 +16,38 @@ looker.plugins.visualizations.add({
 
   options: {
     // ---- DATA ----
-    x_dim: { label: "X Dimension", type: "string", display: "select", values: {}, section: "Data" },
-    y_dim: { label: "Y Dimension", type: "string", display: "select", values: {}, section: "Data" },
+    x_dim:         { label: "X Dimension", type: "string", display: "select", values: {}, section: "Data" },
+    y_dim:         { label: "Y Dimension", type: "string", display: "select", values: {}, section: "Data" },
     value_measure: { label: "Value Measure", type: "string", display: "select", values: {}, section: "Data" },
 
-    // ---- STYLE ----
-    x_axis_title: { label: "X Axis Title", type: "string", default: "", section: "Style" },
-    y_axis_title: { label: "Y Axis Title", type: "string", default: "", section: "Style" },
+    // ---- X AXIS ----
+    x_axis_title:  { label: "Title", type: "string", default: "", section: "X Axis" },
+    reverse_x_axis:{ label: "Reverse", type: "boolean", default: false, section: "X Axis" },
+    x_label_step:  { label: "Label Step", type: "number", default: 1, section: "X Axis" },
+    force_x_range: { label: "Use Custom Min/Max/Step", type: "boolean", default: false, section: "X Axis" },
+    x_min:         { label: "Min (numeric)", type: "number",  default: 1,  section: "X Axis" },
+    x_max:         { label: "Max (numeric)", type: "number",  default: 30, section: "X Axis" },
+    x_step:        { label: "Step",          type: "number",  default: 1,  section: "X Axis" },
 
-    // Legend gradient (single colorAxis). Cells are per-point colored.
-    heat_start_color: { label: "Gradient Start HEX", type: "string", default: "#E6F2FF", section: "Style" },
-    heat_end_color:   { label: "Gradient End HEX (legend)", type: "string", default: "#007AFF", section: "Style" },
+    // ---- Y AXIS ----
+    y_axis_title:  { label: "Title", type: "string", default: "", section: "Y Axis" },
+    row_height:    { label: "Row Height (px)", type: "number", default: 32, section: "Y Axis" },
+    max_visible_rows: { label: "Max Visible Rows (scroll if more)", type: "number", default: 15, section: "Y Axis" },
 
-    reverse_x_axis:   { label: "Reverse X Axis", type: "boolean", default: false, section: "Style" },
-    x_label_step:     { label: "X Axis Label Step", type: "number", default: 1, section: "Style" },
+    // ---- COLOURS ----
+    heat_start_color: { label: "Gradient Start HEX", type: "string", default: "#E6F2FF", section: "Colours" },
+    heat_end_color:   { label: "Gradient End HEX (legend)", type: "string", default: "#007AFF", section: "Colours" },
+    kw1_text: { label: "Keyword 1 (in Y label)", type: "string", default: "", section: "Colours" },
+    kw1_end:  { label: "Keyword 1 End HEX", type: "string", default: "#1f77b4", section: "Colours" },
+    kw2_text: { label: "Keyword 2 (in Y label)", type: "string", default: "", section: "Colours" },
+    kw2_end:  { label: "Keyword 2 End HEX", type: "string", default: "#d62728", section: "Colours" },
+    def_end:  { label: "Default End HEX (no match)", type: "string", default: "#7f8c8d", section: "Colours" },
+    cell_border_color:{ label: "Cell Border Color (HEX or 'transparent')", type: "string", default: "transparent", section: "Colours" },
+    cell_border_width:{ label: "Cell Border Width", type: "number", default: 0, section: "Colours" },
 
-    cell_border_color:{ label: "Cell Border Color (HEX or 'transparent')", type: "string", default: "transparent", section: "Style" },
-    cell_border_width:{ label: "Cell Border Width", type: "number", default: 0, section: "Style" },
-    show_data_labels: { label: "Show values in cells", type: "boolean", default: true, section: "Style" },
-    row_height:       { label: "Row Height (px)", type: "number", default: 32, section: "Style" },
-    max_visible_rows: { label: "Max Visible Rows (scroll if more)", type: "number", default: 15, section: "Style" },
-
-    // ---- Force numeric X range (e.g., show 1..30 even if missing) ----
-    force_x_range: { label: "Force X Range", type: "boolean", default: false, section: "Style" },
-    x_min:         { label: "X Min (numeric)", type: "number",  default: 1,     section: "Style" },
-    x_max:         { label: "X Max (numeric)", type: "number",  default: 30,    section: "Style" },
-    x_step:        { label: "X Step",          type: "number",  default: 1,     section: "Style" },
-
-    // ---- Bucket end colours (cells blend from start -> bucket end) ----
-    kw1_text: { label: "Keyword 1 (in Y label)", type: "string", default: "", section: "Style" },
-    kw1_end:  { label: "Keyword 1 End HEX", type: "string", default: "#1f77b4", section: "Style" },
-    kw2_text: { label: "Keyword 2 (in Y label)", type: "string", default: "", section: "Style" },
-    kw2_end:  { label: "Keyword 2 End HEX", type: "string", default: "#d62728", section: "Style" },
-    def_end:  { label: "Default End HEX (no match)", type: "string", default: "#7f8c8d", section: "Style" },
-
-    // ---- BEHAVIOR ----
-    treat_zero_as_null: { label: "Treat 0 as empty", type: "boolean", default: false, section: "Behavior" }
+    // ---- OTHER ----
+    show_data_labels: { label: "Show values in cells", type: "boolean", default: true, section: "Other" },
+    treat_zero_as_null: { label: "Treat 0 as empty", type: "boolean", default: false, section: "Other" }
   },
 
   create(element) {
@@ -80,11 +76,10 @@ looker.plugins.visualizations.add({
     const a=this._hexToRgb(aHex), b=this._hexToRgb(bHex);
     return this._rgbToHex({ r:this._lerp(a.r,b.r,t), g:this._lerp(a.g,b.g,t), b:this._lerp(a.b,b.b,t) });
   },
-
   _bucketForY(yLabel, cfg) {
     const s  = (yLabel || "").toString().toLowerCase();
     const k1 = (cfg.kw1_text || "").toLowerCase().trim();
-       const k2 = (cfg.kw2_text || "").toLowerCase().trim();
+    const k2 = (cfg.kw2_text || "").toLowerCase().trim();
     if (k1 && s.includes(k1)) return "kw1";
     if (k2 && s.includes(k2)) return "kw2";
     return "def";
@@ -181,7 +176,7 @@ looker.plugins.visualizations.add({
     const xIndex = new Map(categoriesX.map((c, i) => [c, i]));
     const yIndex = new Map(categoriesY.map((c, i) => [c, i]));
 
-    // Value range for the single colorAxis (legend)
+    // Value range for legend (single colorAxis)
     const values = rows.map(r => getNumeric(r, vF)).filter(v => v != null && isFinite(v));
     const minV = values.length ? Math.min(...values) : 0;
     const maxV = values.length ? Math.max(...values) : 1;
@@ -244,7 +239,9 @@ looker.plugins.visualizations.add({
         title: { text: config.x_axis_title || null },
         reversed: !!config.reverse_x_axis,
 
-        // <- ensure 1..30 show even with no data points on some days
+        // ensure full forced range shows with all labels
+        min: 0,
+        max: categoriesX.length - 1,
         tickPositions: tickPositionsX,
         tickmarkPlacement: 'on',
         startOnTick: true,
@@ -253,7 +250,8 @@ looker.plugins.visualizations.add({
         showLastLabel: true,
         labels: {
           step: Number.isFinite(+config.x_label_step) && +config.x_label_step > 0 ? +config.x_label_step : 1,
-          autoRotation: false
+          autoRotation: false,
+          allowOverlap: true
         }
       },
       yAxis: {
