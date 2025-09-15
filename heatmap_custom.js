@@ -29,13 +29,15 @@ looker.plugins.visualizations.add({
     heat_end_color:   { label: "Gradient End HEX (legend)", type: "string", default: "#007AFF", section: "Style" },
 
     reverse_x_axis:   { label: "Reverse X Axis", type: "boolean", default: false, section: "Style" },
+    x_label_step:     { label: "X Axis Label Step", type: "number", default: 1, section: "Style" },
+
     cell_border_color:{ label: "Cell Border Color (HEX or 'transparent')", type: "string", default: "transparent", section: "Style" },
     cell_border_width:{ label: "Cell Border Width", type: "number", default: 0, section: "Style" },
     show_data_labels: { label: "Show values in cells", type: "boolean", default: true, section: "Style" },
     row_height:       { label: "Row Height (px)", type: "number", default: 32, section: "Style" },
     max_visible_rows: { label: "Max Visible Rows (scroll if more)", type: "number", default: 15, section: "Style" },
 
-    // ---- Force numeric X range (e.g., show days 1..30 even if missing) ----
+    // ---- Force numeric X range (e.g., show 1..30 even if missing) ----
     force_x_range: { label: "Force X Range", type: "boolean", default: false, section: "Style" },
     x_min:         { label: "X Min (numeric)", type: "number",  default: 1,     section: "Style" },
     x_max:         { label: "X Max (numeric)", type: "number",  default: 30,    section: "Style" },
@@ -152,11 +154,9 @@ looker.plugins.visualizations.add({
     };
 
     if (usingForcedX) {
-      // Full requested numeric range on X
       const rng = buildRange(+config.x_min, +config.x_max, +config.x_step);
       categoriesX.push(...rng);
 
-      // Y from data; keep rows with both X & Y present (we still need data to plot cells)
       data.forEach(row => {
         const xLabel = getRendered(row, xF);
         const yLabel = getRendered(row, yF);
@@ -166,7 +166,6 @@ looker.plugins.visualizations.add({
         if (!categoriesY.includes(ys)) categoriesY.push(ys);
       });
     } else {
-      // Original behaviour: X & Y derived from data
       data.forEach(row => {
         const xLabel = getRendered(row, xF);
         const yLabel = getRendered(row, yF);
@@ -217,11 +216,9 @@ looker.plugins.visualizations.add({
       const yi = yIndex.get(yLabel);
       if (xi == null || yi == null) return null;
 
-      // choose bucket end colour
       const bucket = this._bucketForY(yLabel, config);
       const endC = bucket === "kw1" ? kw1End : bucket === "kw2" ? kw2End : defEnd;
 
-      // normalise value 0..1 and blend
       const t = value == null ? 0 : (value - minV) / span;
       const color = this._mixHex(startC, endC, Math.max(0, Math.min(1, t)));
 
@@ -242,7 +239,10 @@ looker.plugins.visualizations.add({
       xAxis: {
         categories: categoriesX,
         title: { text: config.x_axis_title || null },
-        reversed: !!config.reverse_x_axis
+        reversed: !!config.reverse_x_axis,
+        labels: { step: Number.isFinite(+config.x_label_step) && +config.x_label_step > 0 ? +config.x_label_step : 1 },
+        startOnTick: true,
+        endOnTick: true
       },
       yAxis: {
         categories: categoriesY,
