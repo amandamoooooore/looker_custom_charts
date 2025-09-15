@@ -45,9 +45,9 @@ looker.plugins.visualizations.add({
     cell_border_color:{ label: "Cell Border Color (HEX or 'transparent')", type: "string", default: "transparent", section: "Colours" },
     cell_border_width:{ label: "Cell Border Width", type: "number", default: 0, section: "Colours" },
 
-    // ---- OTHER ----
-    show_data_labels: { label: "Show values in cells", type: "boolean", default: true, section: "Other" },
-    treat_zero_as_null: { label: "Treat 0 as empty", type: "boolean", default: false, section: "Other" }
+    // ---- BEHAVIOUR ----
+    show_data_labels: { label: "Show values in cells", type: "boolean", default: true, section: "Behaviour" },
+    treat_zero_as_null: { label: "Treat 0 as empty", type: "boolean", default: false, section: "Behaviour" }
   },
 
   create(element) {
