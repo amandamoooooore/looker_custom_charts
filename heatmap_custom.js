@@ -16,9 +16,9 @@ looker.plugins.visualizations.add({
 
   options: {
     // ---- DATA ----
-    x_dim:         { label: "X Dimension", type: "string", display: "select", values: {}, section: "Data" },
-    y_dim:         { label: "Y Dimension", type: "string", display: "select", values: {}, section: "Data" },
-    value_measure: { label: "Value Measure", type: "string", display: "select", values: {}, section: "Data" },
+    x_dim:         { label: "X Dimension", type: "string", display: "select", values: [], section: "Data" },
+    y_dim:         { label: "Y Dimension", type: "string", display: "select", values: [], section: "Data" },
+    value_measure: { label: "Value Measure", type: "string", display: "select", values: [], section: "Data" },
 
     // ---- X AXIS ----
     x_axis_title:  { label: "Title", type: "string", default: "", section: "X Axis" },
@@ -91,17 +91,23 @@ looker.plugins.visualizations.add({
     const dims = queryResponse.fields.dimension_like || [];
     const meas = queryResponse.fields.measure_like || [];
 
-    // Build select choices + defaults
-    const dimChoices = {}; dims.forEach(d => dimChoices[d.name] = d.label_short || d.label || d.name);
-    const measChoices = {}; meas.forEach(m => measChoices[m.name] = m.label_short || m.label || m.name);
+    // ---- Build select choices + defaults (FIX: use {label,value} arrays) ----
+    const dimChoicesArr  = dims.map(d => ({
+      label: d.label_short || d.label || d.name,
+      value: d.name
+    }));
+    const measChoicesArr = meas.map(m => ({
+      label: m.label_short || m.label || m.name,
+      value: m.name
+    }));
 
-    if (!config.x_dim && dims[0]) config.x_dim = dims[0].name;
-    if (!config.y_dim && (dims[1] || dims[0])) config.y_dim = (dims[1] ? dims[1].name : dims[0].name);
-    if (!config.value_measure && meas[0]) config.value_measure = meas[0].name;
+    if (!config.x_dim && dimChoicesArr[0])  config.x_dim  = dimChoicesArr[0].value;
+    if (!config.y_dim && dimChoicesArr[1])  config.y_dim  = dimChoicesArr[1].value || dimChoicesArr[0].value;
+    if (!config.value_measure && measChoicesArr[0]) config.value_measure = measChoicesArr[0].value;
 
-    this.options.x_dim.values = dimChoices;
-    this.options.y_dim.values = dimChoices;
-    this.options.value_measure.values = measChoices;
+    this.options.x_dim.values         = dimChoicesArr;
+    this.options.y_dim.values         = dimChoicesArr;
+    this.options.value_measure.values = measChoicesArr;
     this.trigger('registerOptions', this.options);
 
     const xF = this._fieldByName(dims, config.x_dim);
@@ -128,7 +134,7 @@ looker.plugins.visualizations.add({
       return Number.isFinite(n) ? n : null;
     };
 
-    // --- Build X & Y categories + keep rows (skip rows with null X/Y) ---
+    // --- Build X & Y categories + keep rows ---
     const categoriesX = [];
     const categoriesY = [];
     const rows = [];
@@ -172,11 +178,10 @@ looker.plugins.visualizations.add({
       });
     }
 
-    // Index maps (labels are strings)
     const xIndex = new Map(categoriesX.map((c, i) => [c, i]));
     const yIndex = new Map(categoriesY.map((c, i) => [c, i]));
 
-    // Value range for legend (single colorAxis)
+    // Value range for legend
     const values = rows.map(r => getNumeric(r, vF)).filter(v => v != null && isFinite(v));
     const minV = values.length ? Math.min(...values) : 0;
     const maxV = values.length ? Math.max(...values) : 1;
@@ -220,7 +225,6 @@ looker.plugins.visualizations.add({
       return { x: xi, y: yi, value, color };
     }).filter(Boolean);
 
-    // Force a tick for EVERY category index: 0..N-1
     const tickPositionsX = categoriesX.map((_, i) => i);
 
     Highcharts.chart("hm_chart", {
@@ -238,8 +242,6 @@ looker.plugins.visualizations.add({
         categories: categoriesX,
         title: { text: config.x_axis_title || null },
         reversed: !!config.reverse_x_axis,
-
-        // ensure full forced range shows with all labels
         min: 0,
         max: categoriesX.length - 1,
         tickPositions: tickPositionsX,
@@ -262,7 +264,6 @@ looker.plugins.visualizations.add({
         labels: { step: 1 }
       },
 
-      // Single colorAxis drives the legend bar + built-in hover indicator
       colorAxis: {
         min: minV,
         max: maxV,
