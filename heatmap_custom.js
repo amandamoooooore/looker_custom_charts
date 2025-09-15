@@ -23,14 +23,25 @@ looker.plugins.visualizations.add({
     // ---- STYLE ----
     x_axis_title: { label: "X Axis Title", type: "string", default: "", section: "Style" },
     y_axis_title: { label: "Y Axis Title", type: "string", default: "", section: "Style" },
+
+    // Base gradient (when keyword gradients OFF, and as START color always)
     heat_start_color: { label: "Gradient Start HEX", type: "string", default: "#E6F2FF", section: "Style" },
-    heat_end_color: { label: "Gradient End HEX", type: "string", default: "#007AFF", section: "Style" },
-    reverse_x_axis: { label: "Reverse X Axis", type: "boolean", default: false, section: "Style" },
-    cell_border_color: { label: "Cell Border Color (HEX or 'transparent')", type: "string", default: "transparent", section: "Style" },
-    cell_border_width: { label: "Cell Border Width", type: "number", default: 0, section: "Style" },
+    heat_end_color:   { label: "Gradient End HEX (when keyword gradients OFF)", type: "string", default: "#007AFF", section: "Style" },
+
+    reverse_x_axis:   { label: "Reverse X Axis", type: "boolean", default: false, section: "Style" },
+    cell_border_color:{ label: "Cell Border Color (HEX or 'transparent')", type: "string", default: "transparent", section: "Style" },
+    cell_border_width:{ label: "Cell Border Width", type: "number", default: 0, section: "Style" },
     show_data_labels: { label: "Show values in cells", type: "boolean", default: true, section: "Style" },
-    row_height: { label: "Row Height (px)", type: "number", default: 32, section: "Style" },
+    row_height:       { label: "Row Height (px)", type: "number", default: 32, section: "Style" },
     max_visible_rows: { label: "Max Visible Rows (scroll if more)", type: "number", default: 15, section: "Style" },
+
+    // --- Keyword gradient options ---
+    use_keyword_gradients: { label: "Use keyword-based gradient ends", type: "boolean", default: false, section: "Style" },
+    kw1_text:   { label: "Keyword 1 (in Y label)", type: "string", default: "", section: "Style" },
+    kw1_end:    { label: "Keyword 1 Gradient END", type: "string", default: "#1f77b4", section: "Style" },
+    kw2_text:   { label: "Keyword 2 (in Y label)", type: "string", default: "", section: "Style" },
+    kw2_end:    { label: "Keyword 2 Gradient END", type: "string", default: "#d62728", section: "Style" },
+    def_end:    { label: "Default Gradient END (no match)", type: "string", default: "#7f8c8d", section: "Style" },
 
     // ---- BEHAVIOR ----
     treat_zero_as_null: { label: "Treat 0 as empty", type: "boolean", default: false, section: "Behavior" }
@@ -47,6 +58,16 @@ looker.plugins.visualizations.add({
   },
 
   _fieldByName(fields, name) { return fields.find(f => f.name === name); },
+
+  // Helper: bucket assignment for Y labels
+  _bucketForY(yLabel, cfg) {
+    const s  = (yLabel || "").toString().toLowerCase();
+    const k1 = (cfg.kw1_text || "").toLowerCase().trim();
+    const k2 = (cfg.kw2_text || "").toLowerCase().trim();
+    if (k1 && s.includes(k1)) return "kw1";
+    if (k2 && s.includes(k2)) return "kw2";
+    return "def";
+  },
 
   async update(data, element, config, queryResponse) {
     await this._hcReady;
@@ -85,7 +106,6 @@ looker.plugins.visualizations.add({
       const cell = row[field.name];
       if (!cell) return null;
       const val = (cell.rendered ?? cell.value);
-      // treat blanks as null; (add other placeholders if you see them)
       return (val === undefined || val === null || String(val).trim() === "") ? null : val;
     };
     const getNumeric = (row, field) => {
@@ -115,103 +135,157 @@ looker.plugins.visualizations.add({
     const xIndex = new Map(categoriesX.map((c, i) => [c, i]));
     const yIndex = new Map(categoriesY.map((c, i) => [c, i]));
 
-    // Points [x, y, value]
     const treatZero = !!config.treat_zero_as_null;
-    const points = [];
-    rowsFiltered.forEach(row => {
-      const xLabel = String(getRendered(row, xF));
-      const yLabel = String(getRendered(row, yF));
-      const num = getNumeric(row, vF);
-      const value = (treatZero && num === 0) ? null : num;
-      const xi = xIndex.get(xLabel);
-      const yi = yIndex.get(yLabel);
-      if (xi != null && yi != null) points.push([xi, yi, value]);
-    });
 
     // --- Layout sizing ---
     const totalRows = categoriesY.length;
     const rowH = Number.isFinite(+config.row_height) && +config.row_height > 0 ? +config.row_height : 32;
     const maxVisible = Math.max(1, Number.isFinite(+config.max_visible_rows) ? +config.max_visible_rows : 15);
 
-    // approximate vertical padding for titles/labels so the plot fits nicely
-    const V_PAD = 120; // tweak if needed for your theme
+    const V_PAD = 120; // vertical padding for titles/labels
     const visiblePlotHeight = Math.min(totalRows, maxVisible) * rowH;
     const totalPlotHeight   = Math.max(visiblePlotHeight, totalRows * rowH);
 
-    // container height = visible plot + padding; scroll area minHeight = total plot + padding
     const chartHeight = visiblePlotHeight + V_PAD;
-    const legendSymbolHeight = visiblePlotHeight; // start value; HC will stretch if needed
+    const legendSymbolHeight = visiblePlotHeight;
 
-    // Gradient colors
+    // Base colors
     const start = (config.heat_start_color || "#E6F2FF").trim();
     const end   = (config.heat_end_color   || "#007AFF").trim();
 
-    Highcharts.chart("hm_chart", {
-      chart: {
-        type: "heatmap",
-        styledMode: false,
-        spacing: [10,10,10,10],
-        height: chartHeight,
-        scrollablePlotArea: {
-          minHeight: totalPlotHeight + V_PAD,
-          scrollPositionY: 0
-        }
-      },
-      exporting: { enabled: false }, 
-      title: { text: null },
+    const kw1End = (config.kw1_end || "#1f77b4").trim();
+    const kw2End = (config.kw2_end || "#d62728").trim();
+    const defEnd = (config.def_end || "#7f8c8d").trim();
 
-      xAxis: {
-        categories: categoriesX,
-        title: { text: config.x_axis_title || null },
-        reversed: !!config.reverse_x_axis
-      },
-      yAxis: {
-        categories: categoriesY,
-        title: { text: config.y_axis_title || null },
-        reversed: true,
-        tickInterval: 1,                 
-        labels: { step: 1 }             
-      },
+    const useKW = !!config.use_keyword_gradients;
 
-      colorAxis: {
-        min: 0,
-        minColor: start,
-        maxColor: end
-      },
+    // ------------------------
+    // CASE 1: Normal gradient
+    // ------------------------
+    if (!useKW) {
+      const points = [];
+      rowsFiltered.forEach(row => {
+        const xLabel = String(getRendered(row, xF));
+        const yLabel = String(getRendered(row, yF));
+        const num    = getNumeric(row, vF);
+        const value  = (treatZero && num === 0) ? null : num;
+        const xi = xIndex.get(xLabel);
+        const yi = yIndex.get(yLabel);
+        if (xi != null && yi != null) points.push([xi, yi, value]);
+      });
 
-      legend: {
-        align: "right",
-        layout: "vertical",
-        verticalAlign: "middle",
-        symbolHeight: legendSymbolHeight
-      },
-
-      tooltip: {
-        formatter: function () {
-          const xLabel = this.series.xAxis.categories[this.point.x];
-          const yLabel = this.series.yAxis.categories[this.point.y];
-          const v = this.point.value;
-          return `<b>${yLabel}</b><br/>${xLabel}: <b>${(v==null?'–':Highcharts.numberFormat(v,0))}</b>`;
-        }
-      },
-
-      plotOptions: {
-        series: { animation: false }
-      },
-
-      series: [{
-        name: "Heat",
-        borderColor: (config.cell_border_color || "transparent"),
-        borderWidth: Number.isFinite(+config.cell_border_width) ? +config.cell_border_width : 0,
-        data: points,
-        dataLabels: {
-          enabled: !!config.show_data_labels,
+      Highcharts.chart("hm_chart", {
+        chart: {
+          type: "heatmap",
+          styledMode: false,
+          spacing: [10,10,10,10],
+          height: chartHeight,
+          scrollablePlotArea: { minHeight: totalPlotHeight + V_PAD, scrollPositionY: 0 }
+        },
+        exporting: { enabled: false }, 
+        title: { text: null },
+        xAxis: { categories: categoriesX, title: { text: config.x_axis_title || null }, reversed: !!config.reverse_x_axis },
+        yAxis: { categories: categoriesY, title: { text: config.y_axis_title || null }, reversed: true, tickInterval: 1, labels: { step: 1 } },
+        colorAxis: { min: 0, minColor: start, maxColor: end },
+        legend: { align: "right", layout: "vertical", verticalAlign: "middle", symbolHeight: legendSymbolHeight },
+        tooltip: {
           formatter: function () {
+            const xLabel = this.series.xAxis.categories[this.point.x];
+            const yLabel = this.series.yAxis.categories[this.point.y];
             const v = this.point.value;
-            return (v == null ? "" : Highcharts.numberFormat(v, 0));
+            return `<b>${yLabel}</b><br/>${xLabel}: <b>${(v==null?'–':Highcharts.numberFormat(v,0))}</b>`;
           }
-        }
-      }]
-    });
+        },
+        plotOptions: { series: { animation: false } },
+        series: [{
+          name: "Heat",
+          borderColor: (config.cell_border_color || "transparent"),
+          borderWidth: Number.isFinite(+config.cell_border_width) ? +config.cell_border_width : 0,
+          data: points,
+          dataLabels: { enabled: !!config.show_data_labels,
+            formatter: function () { const v = this.point.value; return (v == null ? "" : Highcharts.numberFormat(v, 0)); } }
+        }]
+      });
+
+    // ------------------------
+    // CASE 2: Keyword gradients
+    // ------------------------
+    } else {
+      const ptsKW1 = [], ptsKW2 = [], ptsDEF = [];
+
+      rowsFiltered.forEach(row => {
+        const xLabel = String(getRendered(row, xF));
+        const yLabel = String(getRendered(row, yF));
+        const num    = getNumeric(row, vF);
+        const value  = (treatZero && num === 0) ? null : num;
+        const xi = xIndex.get(xLabel);
+        const yi = yIndex.get(yLabel);
+        if (xi == null || yi == null) return;
+
+        const bucket = this._bucketForY(yLabel, config);
+        const point = [xi, yi, value];
+        if (bucket === "kw1") ptsKW1.push(point);
+        else if (bucket === "kw2") ptsKW2.push(point);
+        else ptsDEF.push(point);
+      });
+
+      Highcharts.chart("hm_chart", {
+        chart: {
+          type: "heatmap",
+          styledMode: false,
+          spacing: [10,10,10,10],
+          height: chartHeight,
+          scrollablePlotArea: { minHeight: totalPlotHeight + V_PAD, scrollPositionY: 0 }
+        },
+        exporting: { enabled: false },
+        title: { text: null },
+        xAxis: { categories: categoriesX, title: { text: config.x_axis_title || null }, reversed: !!config.reverse_x_axis },
+        yAxis: { categories: categoriesY, title: { text: config.y_axis_title || null }, reversed: true, tickInterval: 1, labels: { step: 1 } },
+
+        // Three axes, but only default is shown in legend
+        colorAxis: [
+          { id: "kw1Axis", min: 0, minColor: start, maxColor: kw1End, showInLegend: false, labels: { enabled: false } },
+          { id: "kw2Axis", min: 0, minColor: start, maxColor: kw2End, showInLegend: false, labels: { enabled: false } },
+          { id: "defAxis", min: 0, minColor: start, maxColor: defEnd, showInLegend: true,  labels: { enabled: true } }
+        ],
+
+        legend: { enabled: true, align: "right", layout: "vertical", verticalAlign: "middle", symbolHeight: legendSymbolHeight },
+
+        tooltip: {
+          formatter: function () {
+            const xLabel = this.series.xAxis.categories[this.point.x];
+            const yLabel = this.series.yAxis.categories[this.point.y];
+            const v = this.point.value;
+            return `<b>${yLabel}</b><br/>${xLabel}: <b>${(v==null?'–':Highcharts.numberFormat(v,0))}</b>`;
+          }
+        },
+
+        plotOptions: { series: { animation: false } },
+
+        series: [
+          { name: (config.kw1_text || "Keyword 1"), type: "heatmap", colorAxis: 0, data: ptsKW1,
+            borderColor: (config.cell_border_color || "transparent"),
+            borderWidth: Number.isFinite(+config.cell_border_width) ? +config.cell_border_width : 0,
+            dataLabels: { enabled: !!config.show_data_labels,
+              formatter: function () { const v = this.point.value; return (v == null ? "" : Highcharts.numberFormat(v, 0)); } },
+            showInLegend: false
+          },
+          { name: (config.kw2_text || "Keyword 2"), type: "heatmap", colorAxis: 1, data: ptsKW2,
+            borderColor: (config.cell_border_color || "transparent"),
+            borderWidth: Number.isFinite(+config.cell_border_width) ? +config.cell_border_width : 0,
+            dataLabels: { enabled: !!config.show_data_labels,
+              formatter: function () { const v = this.point.value; return (v == null ? "" : Highcharts.numberFormat(v, 0)); } },
+            showInLegend: false
+          },
+          { name: "Other", type: "heatmap", colorAxis: 2, data: ptsDEF,
+            borderColor: (config.cell_border_color || "transparent"),
+            borderWidth: Number.isFinite(+config.cell_border_width) ? +config.cell_border_width : 0,
+            dataLabels: { enabled: !!config.show_data_labels,
+              formatter: function () { const v = this.point.value; return (v == null ? "" : Highcharts.numberFormat(v, 0)); } },
+            showInLegend: false
+          }
+        ]
+      });
+    }
   }
 });
