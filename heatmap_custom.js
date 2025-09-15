@@ -186,7 +186,7 @@ looker.plugins.visualizations.add({
         title: { text: null },
         xAxis: { categories: categoriesX, title: { text: config.x_axis_title || null }, reversed: !!config.reverse_x_axis },
         yAxis: { categories: categoriesY, title: { text: config.y_axis_title || null }, reversed: true, tickInterval: 1, labels: { step: 1 } },
-        colorAxis: { min: 0, minColor: start, maxColor: end },
+        colorAxis: { min: 0, minColor: start, maxColor: end, crosshair: { color: '#666', width: 1 } }, // NEW: crosshair in normal mode
         legend: { align: "right", layout: "vertical", verticalAlign: "middle", symbolHeight: legendSymbolHeight },
         tooltip: {
           formatter: function () {
@@ -242,11 +242,11 @@ looker.plugins.visualizations.add({
         xAxis: { categories: categoriesX, title: { text: config.x_axis_title || null }, reversed: !!config.reverse_x_axis },
         yAxis: { categories: categoriesY, title: { text: config.y_axis_title || null }, reversed: true, tickInterval: 1, labels: { step: 1 } },
 
-        // Three axes, but only default is shown in legend
+        // Three axes, but only default is shown in legend (and used for the hover indicator)
         colorAxis: [
           { id: "kw1Axis", min: 0, minColor: start, maxColor: kw1End, showInLegend: false, labels: { enabled: false } },
           { id: "kw2Axis", min: 0, minColor: start, maxColor: kw2End, showInLegend: false, labels: { enabled: false } },
-          { id: "defAxis", min: 0, minColor: start, maxColor: defEnd, showInLegend: true,  labels: { enabled: true } }
+          { id: "defAxis", min: 0, minColor: start, maxColor: defEnd, showInLegend: true,  labels: { enabled: true }, crosshair: { color: '#666', width: 1 } } // NEW: crosshair enabled
         ],
 
         legend: { enabled: true, align: "right", layout: "vertical", verticalAlign: "middle", symbolHeight: legendSymbolHeight },
@@ -262,27 +262,112 @@ looker.plugins.visualizations.add({
 
         plotOptions: { series: { animation: false } },
 
+        // Three heatmap series bound to different color axes
         series: [
-          { name: (config.kw1_text || "Keyword 1"), type: "heatmap", colorAxis: 0, data: ptsKW1,
+          {
+            name: (config.kw1_text || "Keyword 1"),
+            type: "heatmap",
+            colorAxis: 0,                    // kw1Axis
             borderColor: (config.cell_border_color || "transparent"),
             borderWidth: Number.isFinite(+config.cell_border_width) ? +config.cell_border_width : 0,
-            dataLabels: { enabled: !!config.show_data_labels,
-              formatter: function () { const v = this.point.value; return (v == null ? "" : Highcharts.numberFormat(v, 0)); } },
-            showInLegend: false
+            data: ptsKW1,
+            dataLabels: {
+              enabled: !!config.show_data_labels,
+              formatter: function () {
+                const v = this.point.value;
+                return (v == null ? "" : Highcharts.numberFormat(v, 0));
+              }
+            },
+            showInLegend: false,
+            // NEW: hover crosshair on default legend
+            point: {
+              events: {
+                mouseOver: function () {
+                  const axes = this.series.chart.colorAxis || [];
+                  const defAxis = axes[2] || axes[0];
+                  if (defAxis && defAxis.drawCrosshair) {
+                    defAxis.drawCrosshair(null, { value: this.value });
+                  }
+                },
+                mouseOut: function () {
+                  const axes = this.series.chart.colorAxis || [];
+                  const defAxis = axes[2] || axes[0];
+                  if (defAxis && defAxis.hideCrosshair) {
+                    defAxis.hideCrosshair();
+                  }
+                }
+              }
+            }
           },
-          { name: (config.kw2_text || "Keyword 2"), type: "heatmap", colorAxis: 1, data: ptsKW2,
+          {
+            name: (config.kw2_text || "Keyword 2"),
+            type: "heatmap",
+            colorAxis: 1,                    // kw2Axis
             borderColor: (config.cell_border_color || "transparent"),
             borderWidth: Number.isFinite(+config.cell_border_width) ? +config.cell_border_width : 0,
-            dataLabels: { enabled: !!config.show_data_labels,
-              formatter: function () { const v = this.point.value; return (v == null ? "" : Highcharts.numberFormat(v, 0)); } },
-            showInLegend: false
+            data: ptsKW2,
+            dataLabels: {
+              enabled: !!config.show_data_labels,
+              formatter: function () {
+                const v = this.point.value;
+                return (v == null ? "" : Highcharts.numberFormat(v, 0));
+              }
+            },
+            showInLegend: false,
+            // NEW: hover crosshair on default legend
+            point: {
+              events: {
+                mouseOver: function () {
+                  const axes = this.series.chart.colorAxis || [];
+                  const defAxis = axes[2] || axes[0];
+                  if (defAxis && defAxis.drawCrosshair) {
+                    defAxis.drawCrosshair(null, { value: this.value });
+                  }
+                },
+                mouseOut: function () {
+                  const axes = this.series.chart.colorAxis || [];
+                  const defAxis = axes[2] || axes[0];
+                  if (defAxis && defAxis.hideCrosshair) {
+                    defAxis.hideCrosshair();
+                  }
+                }
+              }
+            }
           },
-          { name: "Other", type: "heatmap", colorAxis: 2, data: ptsDEF,
+          {
+            name: "Other",
+            type: "heatmap",
+            colorAxis: 2,                    // defAxis
             borderColor: (config.cell_border_color || "transparent"),
             borderWidth: Number.isFinite(+config.cell_border_width) ? +config.cell_border_width : 0,
-            dataLabels: { enabled: !!config.show_data_labels,
-              formatter: function () { const v = this.point.value; return (v == null ? "" : Highcharts.numberFormat(v, 0)); } },
-            showInLegend: false
+            data: ptsDEF,
+            dataLabels: {
+              enabled: !!config.show_data_labels,
+              formatter: function () {
+                const v = this.point.value;
+                return (v == null ? "" : Highcharts.numberFormat(v, 0));
+              }
+            },
+            showInLegend: false,
+            // for completeness, default series will use native legend crosshair
+            point: {
+              events: {
+                mouseOver: function () {
+                  const axes = this.series.chart.colorAxis || [];
+                  const defAxis = axes[2] || axes[0];
+                  if (defAxis && defAxis.drawCrosshair) {
+                    defAxis.drawCrosshair(null, { value: this.value });
+                  }
+                },
+                mouseOut: function () {
+                  const axes = this.series.chart.colorAxis || [];
+                  const defAxis = axes[2] || axes[0];
+                  if (defAxis && defAxis.hideCrosshair) {
+                    defAxis.hideCrosshair();
+                  }
+                }
+              }
+            }
           }
         ]
       });
