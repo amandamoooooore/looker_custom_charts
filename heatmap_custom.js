@@ -24,7 +24,7 @@ looker.plugins.visualizations.add({
     x_axis_title: { label: "X Axis Title", type: "string", default: "", section: "Style" },
     y_axis_title: { label: "Y Axis Title", type: "string", default: "", section: "Style" },
 
-    // Base gradient (when keyword gradients OFF; START color always)
+    // Base gradient (when keyword gradients OFF; also the START color for keyword mode)
     heat_start_color: { label: "Gradient Start HEX", type: "string", default: "#E6F2FF", section: "Style" },
     heat_end_color:   { label: "Gradient End HEX (when keyword gradients OFF)", type: "string", default: "#007AFF", section: "Style" },
 
@@ -58,6 +58,7 @@ looker.plugins.visualizations.add({
 
   _fieldByName(fields, name) { return fields.find(f => f.name === name); },
 
+  // Bucket by Y label (case-insensitive)
   _bucketForY(yLabel, cfg) {
     const s  = (yLabel || "").toString().toLowerCase();
     const k1 = (cfg.kw1_text || "").toLowerCase().trim();
@@ -67,16 +68,44 @@ looker.plugins.visualizations.add({
     return "def";
   },
 
+  // Draw a thin indicator across the legend bar at a numeric value
+  _drawLegendIndicator(chart, value) {
+    const axis = (chart.colorAxis || []).find(a => a.options && a.options.showInLegend && a.legendSymbol);
+    if (!axis || typeof value !== "number" || !isFinite(value)) return;
+
+    const min = axis.min, max = axis.max;
+    if (!(isFinite(min) && isFinite(max)) || max <= min) return;
+
+    const sym = axis.legendSymbol; // SVGElement for the gradient rect in the legend
+    const x = +sym.attr("x"), y = +sym.attr("y"), w = +sym.attr("width"), h = +sym.attr("height");
+
+    // Clamp and map value to a Y inside the legend symbol
+    const t = Math.max(0, Math.min(1, (value - min) / (max - min)));
+    const reversed = !!axis.reversed; // if ever used
+    const yLine = reversed ? y + t * h : y + (1 - t) * h;
+
+    if (!chart._legendLine) {
+      chart._legendLine = chart.renderer
+        .path(['M', x, yLine, 'L', x + w, yLine])
+        .attr({ stroke: '#666', 'stroke-width': 2, zIndex: 7 })
+        .add();
+    } else {
+      chart._legendLine.attr({ d: ['M', x, yLine, 'L', x + w, yLine] }).show();
+    }
+  },
+  _hideLegendIndicator(chart) {
+    if (chart && chart._legendLine) chart._legendLine.hide();
+  },
+
   async update(data, element, config, queryResponse) {
     await this._hcReady;
 
     const dims = queryResponse.fields.dimension_like || [];
     const meas = queryResponse.fields.measure_like || [];
 
-    const dimChoices = {};
-    dims.forEach(d => dimChoices[d.name] = d.label_short || d.label || d.name);
-    const measChoices = {};
-    meas.forEach(m => measChoices[m.name] = m.label_short || m.label || m.name);
+    // Choices + defaults
+    const dimChoices = {}; dims.forEach(d => dimChoices[d.name] = d.label_short || d.label || d.name);
+    const measChoices = {}; meas.forEach(m => measChoices[m.name] = m.label_short || m.label || m.name);
 
     if (!config.x_dim && dims[0]) config.x_dim = dims[0].name;
     if (!config.y_dim && (dims[1] || dims[0])) config.y_dim = (dims[1] ? dims[1].name : dims[0].name);
@@ -97,6 +126,7 @@ looker.plugins.visualizations.add({
       return;
     }
 
+    // Helpers
     const getRendered = (row, field) => {
       const cell = row[field.name];
       if (!cell) return null;
@@ -110,7 +140,7 @@ looker.plugins.visualizations.add({
       return Number.isFinite(n) ? n : null;
     };
 
-    // Build categories / filter nulls
+    // Build categories & filtered rows (skip null X/Y)
     const categoriesX = [], categoriesY = [], rowsFiltered = [];
     data.forEach(row => {
       const xLabel = getRendered(row, xF);
@@ -124,7 +154,6 @@ looker.plugins.visualizations.add({
 
     const xIndex = new Map(categoriesX.map((c, i) => [c, i]));
     const yIndex = new Map(categoriesY.map((c, i) => [c, i]));
-
     const treatZero = !!config.treat_zero_as_null;
 
     // Sizing
@@ -146,7 +175,7 @@ looker.plugins.visualizations.add({
 
     const useKW = !!config.use_keyword_gradients;
 
-    // ===== single gradient =====
+    // -------- Single gradient (no keywords) --------
     if (!useKW) {
       const points = [];
       rowsFiltered.forEach(row => {
@@ -192,7 +221,7 @@ looker.plugins.visualizations.add({
         }]
       });
 
-    // ===== keyword gradients (one default legend bar) =====
+    // -------- Keyword gradients (one default legend) --------
     } else {
       const ptsKW1 = [], ptsKW2 = [], ptsDEF = [];
       rowsFiltered.forEach(row => {
@@ -223,7 +252,7 @@ looker.plugins.visualizations.add({
         xAxis: { categories: categoriesX, title: { text: config.x_axis_title || null }, reversed: !!config.reverse_x_axis },
         yAxis: { categories: categoriesY, title: { text: config.y_axis_title || null }, reversed: true, tickInterval: 1, labels: { step: 1 } },
 
-        // Only default axis is shown in legend
+        // Three axes, show only the default in legend
         colorAxis: [
           { id: "kw1Axis", min: 0, minColor: start, maxColor: kw1End, showInLegend: false, labels: { enabled: false } },
           { id: "kw2Axis", min: 0, minColor: start, maxColor: kw2End, showInLegend: false, labels: { enabled: false } },
@@ -268,50 +297,28 @@ looker.plugins.visualizations.add({
         ]
       });
 
-      // ---- Custom legend indicator (so it works for all series) ----
-      // Adds/updates a thin line across the default color axis bar at a value
-      chart.updateLegendIndicator = function(value) {
-        const axis = this.colorAxis && (this.colorAxis[2] || this.colorAxis[0]);
-        if (!axis || typeof value !== "number") return;
-        const y = axis.toPixels(value);           // pixel Y in chart coords
-        const x0 = axis.left, x1 = axis.left + axis.width;
-
-        if (!this._legendLine) {
-          this._legendLine = this.renderer.path(['M', x0, y, 'L', x1, y])
-            .attr({ stroke: '#666', 'stroke-width': 2, zIndex: 7 })
-            .add();
-        } else {
-          this._legendLine.attr({ d: ['M', x0, y, 'L', x1, y] }).show();
-        }
+      // Wire hover => tooltip + custom legend indicator on DEFAULT axis
+      const draw = (pt) => {
+        if (!pt) return;
+        if (chart.tooltip && chart.tooltip.refresh) chart.tooltip.refresh(pt);
+        // Delay one tick so legendSymbol has dimensions
+        setTimeout(() => this._drawLegendIndicator(chart, typeof pt.value === 'number' ? pt.value : NaN), 0);
       };
-      chart.hideLegendIndicator = function() {
-        if (this._legendLine) this._legendLine.hide();
+      const hide = () => {
+        if (chart.tooltip && chart.tooltip.hide) chart.tooltip.hide(0);
+        this._hideLegendIndicator(chart);
       };
 
-      // Attach hover handlers to each series’ points to drive the indicator & tooltip
-      function wireSeriesHover(s) {
-        if (!s || !s.points) return;
+      // Attach to every point (robust across Looker builds)
+      chart.series.forEach(s => {
         s.points.forEach(p => {
-          // Some Looker builds need explicit handlers on elements:
-          Highcharts.addEvent(p, 'mouseOver', function () {
-            if (chart.tooltip && chart.tooltip.refresh) chart.tooltip.refresh(this);
-            chart.updateLegendIndicator(typeof this.value === 'number' ? this.value : NaN);
-          });
-          Highcharts.addEvent(p, 'mouseOut', function () {
-            if (chart.tooltip && chart.tooltip.hide) chart.tooltip.hide(0);
-            chart.hideLegendIndicator();
-          });
+          Highcharts.addEvent(p, 'mouseOver', function () { draw(this); });
+          Highcharts.addEvent(p, 'mouseOut',  function () { hide();   });
         });
-      }
-      chart.series.forEach(wireSeriesHover);
-
-      // Keep indicator positioned if chart is redrawn (resize/scroll)
-      Highcharts.addEvent(chart, 'redraw', function () {
-        if (this._legendLine && this._legendLine.visibility !== 'hidden') {
-          // reposition to last known value if available
-          const last = this._legendLine; // path holds no value; we leave it hidden on redraw
-        }
       });
+
+      // Keep indicator position correct after redraw (resize/scroll)
+      Highcharts.addEvent(chart, 'redraw', () => this._hideLegendIndicator(chart));
     }
   }
 });
