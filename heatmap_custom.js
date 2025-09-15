@@ -59,7 +59,15 @@ looker.plugins.visualizations.add({
     })();
   },
 
-  _fieldByName(fields, name) { return fields.find(f => f.name === name); },
+  // Accept a selection that could be a field.name OR a label/label_short
+  _fieldBySelection(fields, sel) {
+    if (!sel) return undefined;
+    return fields.find(f =>
+      f.name === sel ||
+      f.label === sel ||
+      f.label_short === sel
+    );
+  },
 
   // colour blending utils
   _hexToRgb(hex) {
@@ -88,33 +96,53 @@ looker.plugins.visualizations.add({
   async update(data, element, config, queryResponse) {
     await this._hcReady;
 
-    // -------- FIELD CHOICES (use [{name,label}] so Looker displays labels correctly) --------
+    // -------- FIELD CHOICES: populate pickers with readable strings --------
     const dims = (queryResponse.fields && queryResponse.fields.dimension_like) || [];
     const meas = (queryResponse.fields && queryResponse.fields.measure_like)   || [];
 
-    const dimChoicesArr  = dims.map(d => ({
-      name : d.name,
+    // Keep a dictionary so we can resolve later
+    this._dimDict = dims.map(d => ({
+      name: d.name,
       label: d.label_short || d.label || d.name
     }));
-    const measChoicesArr = meas.map(m => ({
-      name : m.name,
+    this._measDict = meas.map(m => ({
+      name: m.name,
       label: m.label_short || m.label || m.name
     }));
 
-    if (!config.x_dim && dimChoicesArr[0])           config.x_dim  = dimChoicesArr[0].name;
-    if (!config.y_dim && (dimChoicesArr[1] || dimChoicesArr[0])) {
-      config.y_dim = (dimChoicesArr[1] ? dimChoicesArr[1].name : dimChoicesArr[0].name);
-    }
-    if (!config.value_measure && measChoicesArr[0])  config.value_measure = measChoicesArr[0].name;
+    // Select values shown to the user: array of label strings
+    const dimLabels  = this._dimDict.map(d => d.label);
+    const measLabels = this._measDict.map(m => m.label);
 
-    this.options.x_dim.values         = dimChoicesArr;
-    this.options.y_dim.values         = dimChoicesArr;
-    this.options.value_measure.values = measChoicesArr;
+    // Defaults to first label when empty
+    if (!config.x_dim && dimLabels[0])  config.x_dim  = dimLabels[0];
+    if (!config.y_dim && (dimLabels[1] || dimLabels[0])) config.y_dim = dimLabels[1] || dimLabels[0];
+    if (!config.value_measure && measLabels[0]) config.value_measure = measLabels[0];
+
+    this.options.x_dim.values         = dimLabels;
+    this.options.y_dim.values         = dimLabels;
+    this.options.value_measure.values = measLabels;
     this.trigger('registerOptions', this.options);
 
-    const xF = this._fieldByName(dims, config.x_dim);
-    const yF = this._fieldByName(dims, config.y_dim);
-    const vF = this._fieldByName(meas, config.value_measure);
+    // Resolve the selected label or name to an actual field object
+    const resolveDim = (sel) => {
+      // by name
+      let f = dims.find(d => d.name === sel);
+      if (f) return f;
+      // by label
+      f = dims.find(d => (d.label_short || d.label) === sel);
+      return f;
+    };
+    const resolveMeas = (sel) => {
+      let f = meas.find(m => m.name === sel);
+      if (f) return f;
+      f = meas.find(m => (m.label_short || m.label) === sel);
+      return f;
+    };
+
+    const xF = resolveDim(config.x_dim);
+    const yF = resolveDim(config.y_dim);
+    const vF = resolveMeas(config.value_measure);
 
     const container = document.getElementById("hm_chart");
     if (!xF || !yF || !vF) {
