@@ -84,7 +84,7 @@ looker.plugins.visualizations.add({
   _bucketForY(yLabel, cfg) {
     const s  = (yLabel || "").toString().toLowerCase();
     const k1 = (cfg.kw1_text || "").toLowerCase().trim();
-    const k2 = (cfg.kw2_text || "").toLowerCase().trim();
+       const k2 = (cfg.kw2_text || "").toLowerCase().trim();
     if (k1 && s.includes(k1)) return "kw1";
     if (k2 && s.includes(k2)) return "kw2";
     return "def";
@@ -225,6 +225,9 @@ looker.plugins.visualizations.add({
       return { x: xi, y: yi, value, color };
     }).filter(Boolean);
 
+    // Force a tick for EVERY category index: 0..N-1
+    const tickPositionsX = categoriesX.map((_, i) => i);
+
     Highcharts.chart("hm_chart", {
       chart: {
         type: "heatmap",
@@ -240,9 +243,18 @@ looker.plugins.visualizations.add({
         categories: categoriesX,
         title: { text: config.x_axis_title || null },
         reversed: !!config.reverse_x_axis,
-        labels: { step: Number.isFinite(+config.x_label_step) && +config.x_label_step > 0 ? +config.x_label_step : 1 },
+
+        // <- ensure 1..30 show even with no data points on some days
+        tickPositions: tickPositionsX,
+        tickmarkPlacement: 'on',
         startOnTick: true,
-        endOnTick: true
+        endOnTick: true,
+        showFirstLabel: true,
+        showLastLabel: true,
+        labels: {
+          step: Number.isFinite(+config.x_label_step) && +config.x_label_step > 0 ? +config.x_label_step : 1,
+          autoRotation: false
+        }
       },
       yAxis: {
         categories: categoriesY,
