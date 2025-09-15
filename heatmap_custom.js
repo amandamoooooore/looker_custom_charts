@@ -15,11 +15,6 @@ looker.plugins.visualizations.add({
   label: "Heatmap (flexible axes + gradient)",
 
   options: {
-    // ---- DATA ----
-    x_dim:         { label: "X Dimension", type: "string", display: "select", values: [], section: "Data" },
-    y_dim:         { label: "Y Dimension", type: "string", display: "select", values: [], section: "Data" },
-    value_measure: { label: "Value Measure", type: "string", display: "select", values: [], section: "Data" },
-
     // ---- X AXIS ----
     x_axis_title:  { label: "Title", type: "string", default: "", section: "X Axis" },
     reverse_x_axis:{ label: "Reverse", type: "boolean", default: false, section: "X Axis" },
