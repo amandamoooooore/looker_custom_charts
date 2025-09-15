@@ -24,9 +24,9 @@ looker.plugins.visualizations.add({
     x_axis_title: { label: "X Axis Title", type: "string", default: "", section: "Style" },
     y_axis_title: { label: "Y Axis Title", type: "string", default: "", section: "Style" },
 
-    // Base gradient (used when keyword mode OFF; also start color in keyword mode)
+    // Base gradient (legend uses this)
     heat_start_color: { label: "Gradient Start HEX", type: "string", default: "#E6F2FF", section: "Style" },
-    heat_end_color:   { label: "Gradient End HEX (keyword mode OFF)", type: "string", default: "#007AFF", section: "Style" },
+    heat_end_color:   { label: "Gradient End HEX (legend)", type: "string", default: "#007AFF", section: "Style" },
 
     reverse_x_axis:   { label: "Reverse X Axis", type: "boolean", default: false, section: "Style" },
     cell_border_color:{ label: "Cell Border Color (HEX or 'transparent')", type: "string", default: "transparent", section: "Style" },
@@ -35,20 +35,19 @@ looker.plugins.visualizations.add({
     row_height:       { label: "Row Height (px)", type: "number", default: 32, section: "Style" },
     max_visible_rows: { label: "Max Visible Rows (scroll if more)", type: "number", default: 15, section: "Style" },
 
-    // --- Keyword gradient options (different END colors per bucket) ---
-    use_keyword_gradients: { label: "Use keyword-based gradient ends", type: "boolean", default: false, section: "Style" },
+    // ---- Keyword bucket colours (END colours we’ll blend toward) ----
     kw1_text: { label: "Keyword 1 (in Y label)", type: "string", default: "", section: "Style" },
-    kw1_end:  { label: "Keyword 1 Gradient END", type: "string", default: "#1f77b4", section: "Style" },
+    kw1_end:  { label: "Keyword 1 End HEX", type: "string", default: "#1f77b4", section: "Style" },
     kw2_text: { label: "Keyword 2 (in Y label)", type: "string", default: "", section: "Style" },
-    kw2_end:  { label: "Keyword 2 Gradient END", type: "string", default: "#d62728", section: "Style" },
-    def_end:  { label: "Default Gradient END (no match)", type: "string", default: "#7f8c8d", section: "Style" },
+    kw2_end:  { label: "Keyword 2 End HEX", type: "string", default: "#d62728", section: "Style" },
+    def_end:  { label: "Default End HEX (no match)", type: "string", default: "#7f8c8d", section: "Style" },
 
     // ---- BEHAVIOR ----
     treat_zero_as_null: { label: "Treat 0 as empty", type: "boolean", default: false, section: "Behavior" }
   },
 
   create(element) {
-    element.innerHTML = "<div id='hm_chart' style='width:100%;height:100%;position:relative'></div>";
+    element.innerHTML = "<div id='hm_chart' style='width:100%;height:100%;'></div>";
     this._hcReady = (async () => {
       await loadScriptOnce("https://code.highcharts.com/highcharts.js");
       await loadScriptOnce("https://code.highcharts.com/modules/heatmap.js");
@@ -58,7 +57,25 @@ looker.plugins.visualizations.add({
 
   _fieldByName(fields, name) { return fields.find(f => f.name === name); },
 
-  // Bucket by Y label (case-insensitive)
+  // utilities for colour blending
+  _hexToRgb(hex) {
+    const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex.trim());
+    if (!m) return { r: 0, g: 0, b: 0 };
+    return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
+  },
+  _rgbToHex({ r, g, b }) {
+    const h = (n) => {
+      const s = Math.max(0, Math.min(255, Math.round(n))).toString(16);
+      return s.length === 1 ? "0" + s : s;
+    };
+    return "#" + h(r) + h(g) + h(b);
+  },
+  _lerp(a, b, t) { return a + (b - a) * t; },
+  _mixHex(aHex, bHex, t) {
+    const a = this._hexToRgb(aHex), b = this._hexToRgb(bHex);
+    return this._rgbToHex({ r: this._lerp(a.r, b.r, t), g: this._lerp(a.g, b.g, t), b: this._lerp(a.b, b.b, t) });
+  },
+
   _bucketForY(yLabel, cfg) {
     const s  = (yLabel || "").toString().toLowerCase();
     const k1 = (cfg.kw1_text || "").toLowerCase().trim();
@@ -68,68 +85,12 @@ looker.plugins.visualizations.add({
     return "def";
   },
 
-  // ---- HTML indicator over the legend gradient ----
-  _ensureLegendIndicatorEl(container) {
-    let el = container.querySelector(".legend-value-indicator");
-    if (!el) {
-      el = document.createElement("div");
-      el.className = "legend-value-indicator";
-      Object.assign(el.style, {
-        position: "absolute",
-        left: "0px", top: "0px",
-        width: "0px", height: "2px",
-        background: "#666",
-        zIndex: 9999,
-        pointerEvents: "none",
-        display: "none"
-      });
-      container.appendChild(el);
-    }
-    return el;
-  },
-  _showLegendIndicator(chart, value) {
-    const defAxis = (chart.colorAxis || []).find(a => a.options && a.options.showInLegend && a.legendSymbol);
-    if (!defAxis || typeof value !== "number" || !isFinite(value)) return;
-
-    const symEl = defAxis.legendSymbol && defAxis.legendSymbol.element;
-    if (!symEl) return;
-
-    const chartBox = chart.container.getBoundingClientRect();
-    const symBox   = symEl.getBoundingClientRect();
-
-    // Map value -> y inside legend rect (vertical bar assumed)
-    const min = defAxis.min, max = defAxis.max;
-    if (!(isFinite(min) && isFinite(max)) || max <= min) return;
-
-    const t = Math.max(0, Math.min(1, (value - min) / (max - min)));
-    const yPx = symBox.top + (1 - t) * symBox.height; // top->bottom
-
-    const line = this._ensureLegendIndicatorEl(chart.renderTo || chart.container.parentElement);
-    // full width of legend bar
-    const x0 = symBox.left   - chartBox.left;
-    const y0 = yPx           - chartBox.top;
-    const w  = symBox.width;
-
-    Object.assign(line.style, {
-      left: `${x0}px`,
-      top:  `${y0 - 1}px`,
-      width:`${w}px`,
-      display: "block"
-    });
-  },
-  _hideLegendIndicator(chart) {
-    const el = (chart.renderTo || chart.container.parentElement)
-      .querySelector(".legend-value-indicator");
-    if (el) el.style.display = "none";
-  },
-
   async update(data, element, config, queryResponse) {
     await this._hcReady;
 
     const dims = queryResponse.fields.dimension_like || [];
     const meas = queryResponse.fields.measure_like || [];
 
-    // Choices + defaults
     const dimChoices = {}; dims.forEach(d => dimChoices[d.name] = d.label_short || d.label || d.name);
     const measChoices = {}; meas.forEach(m => measChoices[m.name] = m.label_short || m.label || m.name);
 
@@ -166,13 +127,15 @@ looker.plugins.visualizations.add({
       return Number.isFinite(n) ? n : null;
     };
 
-    // Build categories & filtered rows (skip null X/Y)
-    const categoriesX = [], categoriesY = [], rowsFiltered = [];
+    // Build categories & points (skip rows with null X or Y)
+    const categoriesX = [];
+    const categoriesY = [];
+    const rows = [];
     data.forEach(row => {
       const xLabel = getRendered(row, xF);
       const yLabel = getRendered(row, yF);
       if (xLabel == null || yLabel == null) return;
-      rowsFiltered.push(row);
+      rows.push(row);
       const xs = String(xLabel), ys = String(yLabel);
       if (!categoriesX.includes(xs)) categoriesX.push(xs);
       if (!categoriesY.includes(ys)) categoriesY.push(ys);
@@ -180,6 +143,13 @@ looker.plugins.visualizations.add({
 
     const xIndex = new Map(categoriesX.map((c, i) => [c, i]));
     const yIndex = new Map(categoriesY.map((c, i) => [c, i]));
+
+    // Gather numeric values for global min/max (for normalising colours)
+    const values = rows.map(r => getNumeric(r, vF)).filter(v => v != null && isFinite(v));
+    const minV = values.length ? Math.min(...values) : 0;
+    const maxV = values.length ? Math.max(...values) : 1;
+    const span = Math.max(1e-9, maxV - minV);
+
     const treatZero = !!config.treat_zero_as_null;
 
     // Sizing
@@ -190,158 +160,93 @@ looker.plugins.visualizations.add({
     const visiblePlotHeight = Math.min(totalRows, maxVisible) * rowH;
     const totalPlotHeight   = Math.max(visiblePlotHeight, totalRows * rowH);
     const chartHeight = visiblePlotHeight + V_PAD;
-    const legendSymbolHeight = visiblePlotHeight;
 
-    // Colors
-    const start = (config.heat_start_color || "#E6F2FF").trim();
-    const end   = (config.heat_end_color   || "#007AFF").trim();
+    // Colours
+    const startC = (config.heat_start_color || "#E6F2FF").trim();
+    const legendEnd = (config.heat_end_color || "#007AFF").trim();
     const kw1End = (config.kw1_end || "#1f77b4").trim();
     const kw2End = (config.kw2_end || "#d62728").trim();
     const defEnd = (config.def_end || "#7f8c8d").trim();
 
-    const useKW = !!config.use_keyword_gradients;
+    // Build a single heatmap series, but set per-point colours based on bucket
+    const points = rows.map(row => {
+      const xLabel = String(getRendered(row, xF));
+      const yLabel = String(getRendered(row, yF));
+      const num    = getNumeric(row, vF);
+      const value  = (treatZero && num === 0) ? null : num;
 
-    // -------- Single gradient (no keywords) --------
-    if (!useKW) {
-      const points = [];
-      rowsFiltered.forEach(row => {
-        const xLabel = String(getRendered(row, xF));
-        const yLabel = String(getRendered(row, yF));
-        const num    = getNumeric(row, vF);
-        const value  = (treatZero && num === 0) ? null : num;
-        const xi = xIndex.get(xLabel);
-        const yi = yIndex.get(yLabel);
-        if (xi != null && yi != null) points.push([xi, yi, value]);
-      });
+      const xi = xIndex.get(xLabel);
+      const yi = yIndex.get(yLabel);
 
-      Highcharts.chart("hm_chart", {
-        chart: {
-          type: "heatmap",
-          styledMode: false,
-          spacing: [10,10,10,10],
-          height: chartHeight,
-          scrollablePlotArea: { minHeight: totalPlotHeight + V_PAD, scrollPositionY: 0 }
-        },
-        exporting: { enabled: false },
-        title: { text: null },
-        xAxis: { categories: categoriesX, title: { text: config.x_axis_title || null }, reversed: !!config.reverse_x_axis },
-        yAxis: { categories: categoriesY, title: { text: config.y_axis_title || null }, reversed: true, tickInterval: 1, labels: { step: 1 } },
-        colorAxis: { min: 0, minColor: start, maxColor: end, crosshair: { color: '#666', width: 1 } },
-        legend: { align: "right", layout: "vertical", verticalAlign: "middle", symbolHeight: legendSymbolHeight },
-        tooltip: {
+      // choose bucket end colour
+      const bucket = this._bucketForY(yLabel, config);
+      const endC = bucket === "kw1" ? kw1End : bucket === "kw2" ? kw2End : defEnd;
+
+      // normalise and blend
+      const t = value == null ? 0 : (value - minV) / span;  // 0..1
+      const color = this._mixHex(startC, endC, Math.max(0, Math.min(1, t)));
+
+      return { x: xi, y: yi, value, color }; // per-point colour
+    }).filter(p => p.x != null && p.y != null);
+
+    Highcharts.chart("hm_chart", {
+      chart: {
+        type: "heatmap",
+        styledMode: false,
+        spacing: [10,10,10,10],
+        height: chartHeight,
+        scrollablePlotArea: { minHeight: totalPlotHeight + V_PAD, scrollPositionY: 0 }
+      },
+      exporting: { enabled: false },
+      title: { text: null },
+
+      xAxis: { categories: categoriesX, title: { text: config.x_axis_title || null }, reversed: !!config.reverse_x_axis },
+      yAxis: { categories: categoriesY, title: { text: config.y_axis_title || null }, reversed: true, tickInterval: 1, labels: { step: 1 } },
+
+      // **Single** colorAxis => legend gradient + built-in hover marker
+      colorAxis: {
+        min: minV,
+        max: maxV,
+        minColor: startC,
+        maxColor: legendEnd,
+        crosshair: { color: '#666', width: 1 } // enables the legend indicator
+      },
+
+      legend: {
+        align: "right",
+        layout: "vertical",
+        verticalAlign: "middle",
+        symbolHeight: visiblePlotHeight
+      },
+
+      tooltip: {
+        formatter: function () {
+          const xLabel = this.series.xAxis.categories[this.point.x];
+          const yLabel = this.series.yAxis.categories[this.point.y];
+          const v = this.point.value;
+          return `<b>${yLabel}</b><br/>${xLabel}: <b>${(v==null?'–':Highcharts.numberFormat(v,0))}</b>`;
+        }
+      },
+
+      plotOptions: {
+        series: { animation: false }
+      },
+
+      series: [{
+        name: "Heat",
+        borderColor: (config.cell_border_color || "transparent"),
+        borderWidth: Number.isFinite(+config.cell_border_width) ? +config.cell_border_width : 0,
+        // IMPORTANT: keep series bound to the single colorAxis (index 0)
+        colorAxis: 0,
+        data: points, // each point has its own 'color'
+        dataLabels: {
+          enabled: !!config.show_data_labels,
           formatter: function () {
-            const xLabel = this.series.xAxis.categories[this.point.x];
-            const yLabel = this.series.yAxis.categories[this.point.y];
             const v = this.point.value;
-            return `<b>${yLabel}</b><br/>${xLabel}: <b>${(v==null?'–':Highcharts.numberFormat(v,0))}</b>`;
+            return (v == null ? "" : Highcharts.numberFormat(v, 0));
           }
-        },
-        plotOptions: { series: { animation: false } },
-        series: [{
-          name: "Heat",
-          borderColor: (config.cell_border_color || "transparent"),
-          borderWidth: Number.isFinite(+config.cell_border_width) ? +config.cell_border_width : 0,
-          data: points,
-          dataLabels: { enabled: !!config.show_data_labels,
-            formatter: function () { const v = this.point.value; return (v == null ? "" : Highcharts.numberFormat(v, 0)); } }
-        }]
-      });
-
-    // -------- Keyword gradients (one default legend bar) --------
-    } else {
-      const ptsKW1 = [], ptsKW2 = [], ptsDEF = [];
-      rowsFiltered.forEach(row => {
-        const xLabel = String(getRendered(row, xF));
-        const yLabel = String(getRendered(row, yF));
-        const num    = getNumeric(row, vF);
-        const value  = (treatZero && num === 0) ? null : num;
-        const xi = xIndex.get(xLabel);
-        const yi = yIndex.get(yLabel);
-        if (xi == null || yi == null) return;
-        const bucket = this._bucketForY(yLabel, config);
-        const p = [xi, yi, value];
-        if (bucket === "kw1") ptsKW1.push(p);
-        else if (bucket === "kw2") ptsKW2.push(p);
-        else ptsDEF.push(p);
-      });
-
-      const chart = Highcharts.chart("hm_chart", {
-        chart: {
-          type: "heatmap",
-          styledMode: false,
-          spacing: [10,10,10,10],
-          height: chartHeight,
-          scrollablePlotArea: { minHeight: totalPlotHeight + V_PAD, scrollPositionY: 0 }
-        },
-        exporting: { enabled: false },
-        title: { text: null },
-        xAxis: { categories: categoriesX, title: { text: config.x_axis_title || null }, reversed: !!config.reverse_x_axis },
-        yAxis: { categories: categoriesY, title: { text: config.y_axis_title || null }, reversed: true, tickInterval: 1, labels: { step: 1 } },
-
-        // Only the default axis is shown in the legend
-        colorAxis: [
-          { id: "kw1Axis", min: 0, minColor: start, maxColor: kw1End, showInLegend: false, labels: { enabled: false } },
-          { id: "kw2Axis", min: 0, minColor: start, maxColor: kw2End, showInLegend: false, labels: { enabled: false } },
-          { id: "defAxis", min: 0, minColor: start, maxColor: defEnd, showInLegend: true, labels: { enabled: true } }
-        ],
-
-        legend: { enabled: true, align: "right", layout: "vertical", verticalAlign: "middle", symbolHeight: legendSymbolHeight },
-
-        tooltip: {
-          formatter: function () {
-            const xLabel = this.series.xAxis.categories[this.point.x];
-            const yLabel = this.series.yAxis.categories[this.point.y];
-            const v = this.point.value;
-            return `<b>${yLabel}</b><br/>${xLabel}: <b>${(v==null?'–':Highcharts.numberFormat(v,0))}</b>`;
-          }
-        },
-
-        plotOptions: { series: { animation: false } },
-
-        series: [
-          { name: (config.kw1_text || "Keyword 1"), type: "heatmap", colorAxis: 0,
-            borderColor: (config.cell_border_color || "transparent"),
-            borderWidth: Number.isFinite(+config.cell_border_width) ? +config.cell_border_width : 0,
-            data: ptsKW1, showInLegend: false,
-            dataLabels: { enabled: !!config.show_data_labels, formatter: function () { const v = this.point.value; return (v == null ? "" : Highcharts.numberFormat(v, 0)); } }
-          },
-          { name: (config.kw2_text || "Keyword 2"), type: "heatmap", colorAxis: 1,
-            borderColor: (config.cell_border_color || "transparent"),
-            borderWidth: Number.isFinite(+config.cell_border_width) ? +config.cell_border_width : 0,
-            data: ptsKW2, showInLegend: false,
-            dataLabels: { enabled: !!config.show_data_labels, formatter: function () { const v = this.point.value; return (v == null ? "" : Highcharts.numberFormat(v, 0)); } }
-          },
-          { name: "Other", type: "heatmap", colorAxis: 2,
-            borderColor: (config.cell_border_color || "transparent"),
-            borderWidth: Number.isFinite(+config.cell_border_width) ? +config.cell_border_width : 0,
-            data: ptsDEF, showInLegend: false,
-            dataLabels: { enabled: !!config.show_data_labels, formatter: function () { const v = this.point.value; return (v == null ? "" : Highcharts.numberFormat(v, 0)); } }
-          }
-        ]
-      });
-
-      // --- hook up legend indicator + robust tooltip on hover ---
-      const draw = (pt) => {
-        if (!pt) return;
-        if (chart.tooltip && chart.tooltip.refresh) chart.tooltip.refresh(pt);
-        // ensure legend symbol exists (first render may be async); if not, try next tick
-        const axis = (chart.colorAxis || []).find(a => a.options && a.options.showInLegend && a.legendSymbol);
-        if (!axis) { setTimeout(() => this._showLegendIndicator(chart, pt.value), 0); }
-        else       { this._showLegendIndicator(chart, pt.value); }
-      };
-      const hide = () => {
-        if (chart.tooltip && chart.tooltip.hide) chart.tooltip.hide(0);
-        this._hideLegendIndicator(chart);
-      };
-
-      chart.series.forEach(s => {
-        s.points.forEach(p => {
-          Highcharts.addEvent(p, 'mouseOver', () => draw(p));
-          Highcharts.addEvent(p, 'mouseOut',  hide);
-        });
-      });
-
-      Highcharts.addEvent(chart, 'redraw', () => this._hideLegendIndicator(chart));
-    }
+        }
+      }]
+    });
   }
 });
