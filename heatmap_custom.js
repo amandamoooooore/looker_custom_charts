@@ -24,9 +24,9 @@ looker.plugins.visualizations.add({
     x_axis_title: { label: "X Axis Title", type: "string", default: "", section: "Style" },
     y_axis_title: { label: "Y Axis Title", type: "string", default: "", section: "Style" },
 
-    // Base gradient (when keyword gradients OFF; also the START color for keyword mode)
+    // Base gradient (used when keyword mode OFF; also start color in keyword mode)
     heat_start_color: { label: "Gradient Start HEX", type: "string", default: "#E6F2FF", section: "Style" },
-    heat_end_color:   { label: "Gradient End HEX (when keyword gradients OFF)", type: "string", default: "#007AFF", section: "Style" },
+    heat_end_color:   { label: "Gradient End HEX (keyword mode OFF)", type: "string", default: "#007AFF", section: "Style" },
 
     reverse_x_axis:   { label: "Reverse X Axis", type: "boolean", default: false, section: "Style" },
     cell_border_color:{ label: "Cell Border Color (HEX or 'transparent')", type: "string", default: "transparent", section: "Style" },
@@ -37,18 +37,18 @@ looker.plugins.visualizations.add({
 
     // --- Keyword gradient options (different END colors per bucket) ---
     use_keyword_gradients: { label: "Use keyword-based gradient ends", type: "boolean", default: false, section: "Style" },
-    kw1_text:   { label: "Keyword 1 (in Y label)", type: "string", default: "", section: "Style" },
-    kw1_end:    { label: "Keyword 1 Gradient END", type: "string", default: "#1f77b4", section: "Style" },
-    kw2_text:   { label: "Keyword 2 (in Y label)", type: "string", default: "", section: "Style" },
-    kw2_end:    { label: "Keyword 2 Gradient END", type: "string", default: "#d62728", section: "Style" },
-    def_end:    { label: "Default Gradient END (no match)", type: "string", default: "#7f8c8d", section: "Style" },
+    kw1_text: { label: "Keyword 1 (in Y label)", type: "string", default: "", section: "Style" },
+    kw1_end:  { label: "Keyword 1 Gradient END", type: "string", default: "#1f77b4", section: "Style" },
+    kw2_text: { label: "Keyword 2 (in Y label)", type: "string", default: "", section: "Style" },
+    kw2_end:  { label: "Keyword 2 Gradient END", type: "string", default: "#d62728", section: "Style" },
+    def_end:  { label: "Default Gradient END (no match)", type: "string", default: "#7f8c8d", section: "Style" },
 
     // ---- BEHAVIOR ----
     treat_zero_as_null: { label: "Treat 0 as empty", type: "boolean", default: false, section: "Behavior" }
   },
 
   create(element) {
-    element.innerHTML = "<div id='hm_chart' style='width:100%;height:100%;'></div>";
+    element.innerHTML = "<div id='hm_chart' style='width:100%;height:100%;position:relative'></div>";
     this._hcReady = (async () => {
       await loadScriptOnce("https://code.highcharts.com/highcharts.js");
       await loadScriptOnce("https://code.highcharts.com/modules/heatmap.js");
@@ -68,33 +68,59 @@ looker.plugins.visualizations.add({
     return "def";
   },
 
-  // Draw a thin indicator across the legend bar at a numeric value
-  _drawLegendIndicator(chart, value) {
-    const axis = (chart.colorAxis || []).find(a => a.options && a.options.showInLegend && a.legendSymbol);
-    if (!axis || typeof value !== "number" || !isFinite(value)) return;
+  // ---- HTML indicator over the legend gradient ----
+  _ensureLegendIndicatorEl(container) {
+    let el = container.querySelector(".legend-value-indicator");
+    if (!el) {
+      el = document.createElement("div");
+      el.className = "legend-value-indicator";
+      Object.assign(el.style, {
+        position: "absolute",
+        left: "0px", top: "0px",
+        width: "0px", height: "2px",
+        background: "#666",
+        zIndex: 9999,
+        pointerEvents: "none",
+        display: "none"
+      });
+      container.appendChild(el);
+    }
+    return el;
+  },
+  _showLegendIndicator(chart, value) {
+    const defAxis = (chart.colorAxis || []).find(a => a.options && a.options.showInLegend && a.legendSymbol);
+    if (!defAxis || typeof value !== "number" || !isFinite(value)) return;
 
-    const min = axis.min, max = axis.max;
+    const symEl = defAxis.legendSymbol && defAxis.legendSymbol.element;
+    if (!symEl) return;
+
+    const chartBox = chart.container.getBoundingClientRect();
+    const symBox   = symEl.getBoundingClientRect();
+
+    // Map value -> y inside legend rect (vertical bar assumed)
+    const min = defAxis.min, max = defAxis.max;
     if (!(isFinite(min) && isFinite(max)) || max <= min) return;
 
-    const sym = axis.legendSymbol; // SVGElement for the gradient rect in the legend
-    const x = +sym.attr("x"), y = +sym.attr("y"), w = +sym.attr("width"), h = +sym.attr("height");
-
-    // Clamp and map value to a Y inside the legend symbol
     const t = Math.max(0, Math.min(1, (value - min) / (max - min)));
-    const reversed = !!axis.reversed; // if ever used
-    const yLine = reversed ? y + t * h : y + (1 - t) * h;
+    const yPx = symBox.top + (1 - t) * symBox.height; // top->bottom
 
-    if (!chart._legendLine) {
-      chart._legendLine = chart.renderer
-        .path(['M', x, yLine, 'L', x + w, yLine])
-        .attr({ stroke: '#666', 'stroke-width': 2, zIndex: 7 })
-        .add();
-    } else {
-      chart._legendLine.attr({ d: ['M', x, yLine, 'L', x + w, yLine] }).show();
-    }
+    const line = this._ensureLegendIndicatorEl(chart.renderTo || chart.container.parentElement);
+    // full width of legend bar
+    const x0 = symBox.left   - chartBox.left;
+    const y0 = yPx           - chartBox.top;
+    const w  = symBox.width;
+
+    Object.assign(line.style, {
+      left: `${x0}px`,
+      top:  `${y0 - 1}px`,
+      width:`${w}px`,
+      display: "block"
+    });
   },
   _hideLegendIndicator(chart) {
-    if (chart && chart._legendLine) chart._legendLine.hide();
+    const el = (chart.renderTo || chart.container.parentElement)
+      .querySelector(".legend-value-indicator");
+    if (el) el.style.display = "none";
   },
 
   async update(data, element, config, queryResponse) {
@@ -221,7 +247,7 @@ looker.plugins.visualizations.add({
         }]
       });
 
-    // -------- Keyword gradients (one default legend) --------
+    // -------- Keyword gradients (one default legend bar) --------
     } else {
       const ptsKW1 = [], ptsKW2 = [], ptsDEF = [];
       rowsFiltered.forEach(row => {
@@ -252,7 +278,7 @@ looker.plugins.visualizations.add({
         xAxis: { categories: categoriesX, title: { text: config.x_axis_title || null }, reversed: !!config.reverse_x_axis },
         yAxis: { categories: categoriesY, title: { text: config.y_axis_title || null }, reversed: true, tickInterval: 1, labels: { step: 1 } },
 
-        // Three axes, show only the default in legend
+        // Only the default axis is shown in the legend
         colorAxis: [
           { id: "kw1Axis", min: 0, minColor: start, maxColor: kw1End, showInLegend: false, labels: { enabled: false } },
           { id: "kw2Axis", min: 0, minColor: start, maxColor: kw2End, showInLegend: false, labels: { enabled: false } },
@@ -277,47 +303,44 @@ looker.plugins.visualizations.add({
             borderColor: (config.cell_border_color || "transparent"),
             borderWidth: Number.isFinite(+config.cell_border_width) ? +config.cell_border_width : 0,
             data: ptsKW1, showInLegend: false,
-            dataLabels: { enabled: !!config.show_data_labels,
-              formatter: function () { const v = this.point.value; return (v == null ? "" : Highcharts.numberFormat(v, 0)); } }
+            dataLabels: { enabled: !!config.show_data_labels, formatter: function () { const v = this.point.value; return (v == null ? "" : Highcharts.numberFormat(v, 0)); } }
           },
           { name: (config.kw2_text || "Keyword 2"), type: "heatmap", colorAxis: 1,
             borderColor: (config.cell_border_color || "transparent"),
             borderWidth: Number.isFinite(+config.cell_border_width) ? +config.cell_border_width : 0,
             data: ptsKW2, showInLegend: false,
-            dataLabels: { enabled: !!config.show_data_labels,
-              formatter: function () { const v = this.point.value; return (v == null ? "" : Highcharts.numberFormat(v, 0)); } }
+            dataLabels: { enabled: !!config.show_data_labels, formatter: function () { const v = this.point.value; return (v == null ? "" : Highcharts.numberFormat(v, 0)); } }
           },
           { name: "Other", type: "heatmap", colorAxis: 2,
             borderColor: (config.cell_border_color || "transparent"),
             borderWidth: Number.isFinite(+config.cell_border_width) ? +config.cell_border_width : 0,
             data: ptsDEF, showInLegend: false,
-            dataLabels: { enabled: !!config.show_data_labels,
-              formatter: function () { const v = this.point.value; return (v == null ? "" : Highcharts.numberFormat(v, 0)); } }
+            dataLabels: { enabled: !!config.show_data_labels, formatter: function () { const v = this.point.value; return (v == null ? "" : Highcharts.numberFormat(v, 0)); } }
           }
         ]
       });
 
-      // Wire hover => tooltip + custom legend indicator on DEFAULT axis
+      // --- hook up legend indicator + robust tooltip on hover ---
       const draw = (pt) => {
         if (!pt) return;
         if (chart.tooltip && chart.tooltip.refresh) chart.tooltip.refresh(pt);
-        // Delay one tick so legendSymbol has dimensions
-        setTimeout(() => this._drawLegendIndicator(chart, typeof pt.value === 'number' ? pt.value : NaN), 0);
+        // ensure legend symbol exists (first render may be async); if not, try next tick
+        const axis = (chart.colorAxis || []).find(a => a.options && a.options.showInLegend && a.legendSymbol);
+        if (!axis) { setTimeout(() => this._showLegendIndicator(chart, pt.value), 0); }
+        else       { this._showLegendIndicator(chart, pt.value); }
       };
       const hide = () => {
         if (chart.tooltip && chart.tooltip.hide) chart.tooltip.hide(0);
         this._hideLegendIndicator(chart);
       };
 
-      // Attach to every point (robust across Looker builds)
       chart.series.forEach(s => {
         s.points.forEach(p => {
-          Highcharts.addEvent(p, 'mouseOver', function () { draw(this); });
-          Highcharts.addEvent(p, 'mouseOut',  function () { hide();   });
+          Highcharts.addEvent(p, 'mouseOver', () => draw(p));
+          Highcharts.addEvent(p, 'mouseOut',  hide);
         });
       });
 
-      // Keep indicator position correct after redraw (resize/scroll)
       Highcharts.addEvent(chart, 'redraw', () => this._hideLegendIndicator(chart));
     }
   }
