@@ -24,7 +24,7 @@ looker.plugins.visualizations.add({
     x_axis_title: { label: "X Axis Title", type: "string", default: "", section: "Style" },
     y_axis_title: { label: "Y Axis Title", type: "string", default: "", section: "Style" },
 
-    // Base gradient (legend uses this)
+    // Legend gradient (single colorAxis). Cells are per-point colored.
     heat_start_color: { label: "Gradient Start HEX", type: "string", default: "#E6F2FF", section: "Style" },
     heat_end_color:   { label: "Gradient End HEX (legend)", type: "string", default: "#007AFF", section: "Style" },
 
@@ -35,7 +35,13 @@ looker.plugins.visualizations.add({
     row_height:       { label: "Row Height (px)", type: "number", default: 32, section: "Style" },
     max_visible_rows: { label: "Max Visible Rows (scroll if more)", type: "number", default: 15, section: "Style" },
 
-    // ---- Keyword bucket colours (END colours we’ll blend toward) ----
+    // ---- Force numeric X range (e.g., show days 1..30 even if missing) ----
+    force_x_range: { label: "Force X Range", type: "boolean", default: false, section: "Style" },
+    x_min:         { label: "X Min (numeric)", type: "number",  default: 1,     section: "Style" },
+    x_max:         { label: "X Max (numeric)", type: "number",  default: 30,    section: "Style" },
+    x_step:        { label: "X Step",          type: "number",  default: 1,     section: "Style" },
+
+    // ---- Bucket end colours (cells blend from start -> bucket end) ----
     kw1_text: { label: "Keyword 1 (in Y label)", type: "string", default: "", section: "Style" },
     kw1_end:  { label: "Keyword 1 End HEX", type: "string", default: "#1f77b4", section: "Style" },
     kw2_text: { label: "Keyword 2 (in Y label)", type: "string", default: "", section: "Style" },
@@ -57,23 +63,20 @@ looker.plugins.visualizations.add({
 
   _fieldByName(fields, name) { return fields.find(f => f.name === name); },
 
-  // utilities for colour blending
+  // colour blending utils
   _hexToRgb(hex) {
-    const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex.trim());
+    const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec((hex||"").trim());
     if (!m) return { r: 0, g: 0, b: 0 };
-    return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
+    return { r: parseInt(m[1],16), g: parseInt(m[2],16), b: parseInt(m[3],16) };
   },
   _rgbToHex({ r, g, b }) {
-    const h = (n) => {
-      const s = Math.max(0, Math.min(255, Math.round(n))).toString(16);
-      return s.length === 1 ? "0" + s : s;
-    };
-    return "#" + h(r) + h(g) + h(b);
+    const h = (n)=>{ const s=Math.max(0,Math.min(255,Math.round(n))).toString(16); return s.length===1?"0"+s:s; };
+    return "#"+h(r)+h(g)+h(b);
   },
-  _lerp(a, b, t) { return a + (b - a) * t; },
-  _mixHex(aHex, bHex, t) {
-    const a = this._hexToRgb(aHex), b = this._hexToRgb(bHex);
-    return this._rgbToHex({ r: this._lerp(a.r, b.r, t), g: this._lerp(a.g, b.g, t), b: this._lerp(a.b, b.b, t) });
+  _lerp(a,b,t){ return a+(b-a)*t; },
+  _mixHex(aHex,bHex,t){
+    const a=this._hexToRgb(aHex), b=this._hexToRgb(bHex);
+    return this._rgbToHex({ r:this._lerp(a.r,b.r,t), g:this._lerp(a.g,b.g,t), b:this._lerp(a.b,b.b,t) });
   },
 
   _bucketForY(yLabel, cfg) {
@@ -91,6 +94,7 @@ looker.plugins.visualizations.add({
     const dims = queryResponse.fields.dimension_like || [];
     const meas = queryResponse.fields.measure_like || [];
 
+    // Build select choices + defaults
     const dimChoices = {}; dims.forEach(d => dimChoices[d.name] = d.label_short || d.label || d.name);
     const measChoices = {}; meas.forEach(m => measChoices[m.name] = m.label_short || m.label || m.name);
 
@@ -127,24 +131,58 @@ looker.plugins.visualizations.add({
       return Number.isFinite(n) ? n : null;
     };
 
-    // Build categories & points (skip rows with null X or Y)
+    // --- Build X & Y categories + keep rows (skip rows with null X/Y) ---
     const categoriesX = [];
     const categoriesY = [];
     const rows = [];
-    data.forEach(row => {
-      const xLabel = getRendered(row, xF);
-      const yLabel = getRendered(row, yF);
-      if (xLabel == null || yLabel == null) return;
-      rows.push(row);
-      const xs = String(xLabel), ys = String(yLabel);
-      if (!categoriesX.includes(xs)) categoriesX.push(xs);
-      if (!categoriesY.includes(ys)) categoriesY.push(ys);
-    });
 
+    const usingForcedX =
+      !!config.force_x_range &&
+      Number.isFinite(+config.x_min) &&
+      Number.isFinite(+config.x_max) &&
+      Number.isFinite(+config.x_step) &&
+      +config.x_step !== 0;
+
+    const buildRange = (min, max, step) => {
+      const s = Math.abs(step) || 1;
+      const out = [];
+      if (max >= min) for (let v=min; v<=max; v+=s) out.push(String(v));
+      else            for (let v=min; v>=max; v-=s) out.push(String(v));
+      return out;
+    };
+
+    if (usingForcedX) {
+      // Full requested numeric range on X
+      const rng = buildRange(+config.x_min, +config.x_max, +config.x_step);
+      categoriesX.push(...rng);
+
+      // Y from data; keep rows with both X & Y present (we still need data to plot cells)
+      data.forEach(row => {
+        const xLabel = getRendered(row, xF);
+        const yLabel = getRendered(row, yF);
+        if (xLabel == null || yLabel == null) return;
+        rows.push(row);
+        const ys = String(yLabel);
+        if (!categoriesY.includes(ys)) categoriesY.push(ys);
+      });
+    } else {
+      // Original behaviour: X & Y derived from data
+      data.forEach(row => {
+        const xLabel = getRendered(row, xF);
+        const yLabel = getRendered(row, yF);
+        if (xLabel == null || yLabel == null) return;
+        rows.push(row);
+        const xs = String(xLabel), ys = String(yLabel);
+        if (!categoriesX.includes(xs)) categoriesX.push(xs);
+        if (!categoriesY.includes(ys)) categoriesY.push(ys);
+      });
+    }
+
+    // Index maps (labels are strings)
     const xIndex = new Map(categoriesX.map((c, i) => [c, i]));
     const yIndex = new Map(categoriesY.map((c, i) => [c, i]));
 
-    // Gather numeric values for global min/max (for normalising colours)
+    // Value range for the single colorAxis (legend)
     const values = rows.map(r => getNumeric(r, vF)).filter(v => v != null && isFinite(v));
     const minV = values.length ? Math.min(...values) : 0;
     const maxV = values.length ? Math.max(...values) : 1;
@@ -152,7 +190,7 @@ looker.plugins.visualizations.add({
 
     const treatZero = !!config.treat_zero_as_null;
 
-    // Sizing
+    // --- Layout sizing ---
     const totalRows = categoriesY.length;
     const rowH = Number.isFinite(+config.row_height) && +config.row_height > 0 ? +config.row_height : 32;
     const maxVisible = Math.max(1, Number.isFinite(+config.max_visible_rows) ? +config.max_visible_rows : 15);
@@ -168,7 +206,7 @@ looker.plugins.visualizations.add({
     const kw2End = (config.kw2_end || "#d62728").trim();
     const defEnd = (config.def_end || "#7f8c8d").trim();
 
-    // Build a single heatmap series, but set per-point colours based on bucket
+    // Build single-series points with per-point colours
     const points = rows.map(row => {
       const xLabel = String(getRendered(row, xF));
       const yLabel = String(getRendered(row, yF));
@@ -177,17 +215,18 @@ looker.plugins.visualizations.add({
 
       const xi = xIndex.get(xLabel);
       const yi = yIndex.get(yLabel);
+      if (xi == null || yi == null) return null;
 
       // choose bucket end colour
       const bucket = this._bucketForY(yLabel, config);
       const endC = bucket === "kw1" ? kw1End : bucket === "kw2" ? kw2End : defEnd;
 
-      // normalise and blend
-      const t = value == null ? 0 : (value - minV) / span;  // 0..1
+      // normalise value 0..1 and blend
+      const t = value == null ? 0 : (value - minV) / span;
       const color = this._mixHex(startC, endC, Math.max(0, Math.min(1, t)));
 
-      return { x: xi, y: yi, value, color }; // per-point colour
-    }).filter(p => p.x != null && p.y != null);
+      return { x: xi, y: yi, value, color };
+    }).filter(Boolean);
 
     Highcharts.chart("hm_chart", {
       chart: {
@@ -200,16 +239,26 @@ looker.plugins.visualizations.add({
       exporting: { enabled: false },
       title: { text: null },
 
-      xAxis: { categories: categoriesX, title: { text: config.x_axis_title || null }, reversed: !!config.reverse_x_axis },
-      yAxis: { categories: categoriesY, title: { text: config.y_axis_title || null }, reversed: true, tickInterval: 1, labels: { step: 1 } },
+      xAxis: {
+        categories: categoriesX,
+        title: { text: config.x_axis_title || null },
+        reversed: !!config.reverse_x_axis
+      },
+      yAxis: {
+        categories: categoriesY,
+        title: { text: config.y_axis_title || null },
+        reversed: true,
+        tickInterval: 1,
+        labels: { step: 1 }
+      },
 
-      // **Single** colorAxis => legend gradient + built-in hover marker
+      // Single colorAxis drives the legend bar + built-in hover indicator
       colorAxis: {
         min: minV,
         max: maxV,
         minColor: startC,
         maxColor: legendEnd,
-        crosshair: { color: '#666', width: 1 } // enables the legend indicator
+        crosshair: { color: '#666', width: 1 }
       },
 
       legend: {
@@ -228,17 +277,14 @@ looker.plugins.visualizations.add({
         }
       },
 
-      plotOptions: {
-        series: { animation: false }
-      },
+      plotOptions: { series: { animation: false } },
 
       series: [{
         name: "Heat",
         borderColor: (config.cell_border_color || "transparent"),
         borderWidth: Number.isFinite(+config.cell_border_width) ? +config.cell_border_width : 0,
-        // IMPORTANT: keep series bound to the single colorAxis (index 0)
         colorAxis: 0,
-        data: points, // each point has its own 'color'
+        data: points,
         dataLabels: {
           enabled: !!config.show_data_labels,
           formatter: function () {
