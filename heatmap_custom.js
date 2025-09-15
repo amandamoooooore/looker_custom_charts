@@ -59,17 +59,15 @@ looker.plugins.visualizations.add({
     })();
   },
 
-  // Accept a selection that could be a field.name OR a label/label_short
-  _fieldBySelection(fields, sel) {
+  // Resolve selection to a field (accepts name OR label/label_short)
+  _resolveField(fields, sel) {
     if (!sel) return undefined;
     return fields.find(f =>
-      f.name === sel ||
-      f.label === sel ||
-      f.label_short === sel
+      f.name === sel || f.label === sel || f.label_short === sel
     );
   },
 
-  // colour blending utils
+  // Colour helpers
   _hexToRgb(hex) {
     const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec((hex||"").trim());
     if (!m) return { r: 0, g: 0, b: 0 };
@@ -96,53 +94,54 @@ looker.plugins.visualizations.add({
   async update(data, element, config, queryResponse) {
     await this._hcReady;
 
-    // -------- FIELD CHOICES: populate pickers with readable strings --------
-    const dims = (queryResponse.fields && queryResponse.fields.dimension_like) || [];
-    const meas = (queryResponse.fields && queryResponse.fields.measure_like)   || [];
+    const fields = (queryResponse.fields || {});
+    let dims = fields.dimension_like || [];
+    let meas = fields.measure_like || [];
 
-    // Keep a dictionary so we can resolve later
-    this._dimDict = dims.map(d => ({
+    // ---- BUILD CHOICES (robust) ----
+    // Preferred: use fields metadata
+    let dimDict = dims.map(d => ({
       name: d.name,
       label: d.label_short || d.label || d.name
     }));
-    this._measDict = meas.map(m => ({
+    let measDict = meas.map(m => ({
       name: m.name,
       label: m.label_short || m.label || m.name
     }));
 
-    // Select values shown to the user: array of label strings
-    const dimLabels  = this._dimDict.map(d => d.label);
-    const measLabels = this._measDict.map(m => m.label);
+    // Fallback: if any label is literally 'undefined' or empty, rebuild from row keys
+    const badDims = dimDict.some(d => !d.label || d.label === 'undefined');
+    const badMeas = measDict.some(m => !m.label || m.label === 'undefined');
 
-    // Defaults to first label when empty
-    if (!config.x_dim && dimLabels[0])  config.x_dim  = dimLabels[0];
+    if ((badDims || badMeas) && data && data[0]) {
+      const keys = Object.keys(data[0] || {});
+      // heuristics: treat first 2 keys with object cells as dims, last numeric as measure
+      const asPairs = keys.map(k => ({
+        name: k,
+        label: k.split('.').pop().replace(/_/g, ' ')
+      }));
+      if (badDims) dimDict = asPairs;   // user will still be able to choose
+      if (badMeas) measDict = asPairs;
+    }
+
+    const dimLabels  = dimDict.map(d => d.label || d.name);
+    const measLabels = measDict.map(m => m.label || m.name);
+
+    // Defaults
+    if (!config.x_dim && dimLabels[0]) config.x_dim = dimLabels[0];
     if (!config.y_dim && (dimLabels[1] || dimLabels[0])) config.y_dim = dimLabels[1] || dimLabels[0];
     if (!config.value_measure && measLabels[0]) config.value_measure = measLabels[0];
 
+    // Feed the side panel plain label strings
     this.options.x_dim.values         = dimLabels;
     this.options.y_dim.values         = dimLabels;
     this.options.value_measure.values = measLabels;
     this.trigger('registerOptions', this.options);
 
-    // Resolve the selected label or name to an actual field object
-    const resolveDim = (sel) => {
-      // by name
-      let f = dims.find(d => d.name === sel);
-      if (f) return f;
-      // by label
-      f = dims.find(d => (d.label_short || d.label) === sel);
-      return f;
-    };
-    const resolveMeas = (sel) => {
-      let f = meas.find(m => m.name === sel);
-      if (f) return f;
-      f = meas.find(m => (m.label_short || m.label) === sel);
-      return f;
-    };
-
-    const xF = resolveDim(config.x_dim);
-    const yF = resolveDim(config.y_dim);
-    const vF = resolveMeas(config.value_measure);
+    // Resolve selections back to real field objects by name OR label
+    const xF = this._resolveField(dims, config.x_dim) || dims.find(d => (d.label_short || d.label) === config.x_dim);
+    const yF = this._resolveField(dims, config.y_dim) || dims.find(d => (d.label_short || d.label) === config.y_dim);
+    const vF = this._resolveField(meas, config.value_measure) || meas.find(m => (m.label_short || m.label) === config.value_measure);
 
     const container = document.getElementById("hm_chart");
     if (!xF || !yF || !vF) {
