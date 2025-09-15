@@ -88,22 +88,24 @@ looker.plugins.visualizations.add({
   async update(data, element, config, queryResponse) {
     await this._hcReady;
 
-    const dims = queryResponse.fields.dimension_like || [];
-    const meas = queryResponse.fields.measure_like || [];
+    // -------- FIELD CHOICES (use [{name,label}] so Looker displays labels correctly) --------
+    const dims = (queryResponse.fields && queryResponse.fields.dimension_like) || [];
+    const meas = (queryResponse.fields && queryResponse.fields.measure_like)   || [];
 
-    // ---- Build select choices + defaults (FIX: use {label,value} arrays) ----
     const dimChoicesArr  = dims.map(d => ({
-      label: d.label_short || d.label || d.name,
-      value: d.name
+      name : d.name,
+      label: d.label_short || d.label || d.name
     }));
     const measChoicesArr = meas.map(m => ({
-      label: m.label_short || m.label || m.name,
-      value: m.name
+      name : m.name,
+      label: m.label_short || m.label || m.name
     }));
 
-    if (!config.x_dim && dimChoicesArr[0])  config.x_dim  = dimChoicesArr[0].value;
-    if (!config.y_dim && dimChoicesArr[1])  config.y_dim  = dimChoicesArr[1].value || dimChoicesArr[0].value;
-    if (!config.value_measure && measChoicesArr[0]) config.value_measure = measChoicesArr[0].value;
+    if (!config.x_dim && dimChoicesArr[0])           config.x_dim  = dimChoicesArr[0].name;
+    if (!config.y_dim && (dimChoicesArr[1] || dimChoicesArr[0])) {
+      config.y_dim = (dimChoicesArr[1] ? dimChoicesArr[1].name : dimChoicesArr[0].name);
+    }
+    if (!config.value_measure && measChoicesArr[0])  config.value_measure = measChoicesArr[0].name;
 
     this.options.x_dim.values         = dimChoicesArr;
     this.options.y_dim.values         = dimChoicesArr;
@@ -116,7 +118,7 @@ looker.plugins.visualizations.add({
 
     const container = document.getElementById("hm_chart");
     if (!xF || !yF || !vF) {
-      container.innerHTML = "<div style='padding:12px;color:#666'>Select 2 dimensions and 1 measure.</div>";
+      container.innerHTML = "<div style='padding:12px;color:#666'>Add 2 dimensions and 1 measure, then click <b>Run</b>.</div>";
       return;
     }
 
@@ -134,7 +136,7 @@ looker.plugins.visualizations.add({
       return Number.isFinite(n) ? n : null;
     };
 
-    // --- Build X & Y categories + keep rows ---
+    // --- Build X & Y categories + keep rows (skip rows with null X/Y) ---
     const categoriesX = [];
     const categoriesY = [];
     const rows = [];
@@ -178,6 +180,7 @@ looker.plugins.visualizations.add({
       });
     }
 
+    // Index maps
     const xIndex = new Map(categoriesX.map((c, i) => [c, i]));
     const yIndex = new Map(categoriesY.map((c, i) => [c, i]));
 
