@@ -15,7 +15,7 @@ looker.plugins.visualizations.add({
   label: "Heatmap (flexible axes + gradient)",
 
   options: {
-        // ---- DATA ----
+    // ---- DATA ----
     x_dim:         { label: "X Dimension", type: "string", display: "select", values: [], section: "Data" },
     y_dim:         { label: "Y Dimension", type: "string", display: "select", values: [], section: "Data" },
     value_measure: { label: "Value Measure", type: "string", display: "select", values: [], section: "Data" },
@@ -47,7 +47,13 @@ looker.plugins.visualizations.add({
 
     // ---- BEHAVIOUR ----
     show_data_labels: { label: "Show values in cells", type: "boolean", default: true, section: "Behaviour" },
-    treat_zero_as_null: { label: "Treat 0 as empty", type: "boolean", default: false, section: "Behaviour" }
+    treat_zero_as_null: { label: "Treat 0 as empty", type: "boolean", default: false, section: "Behaviour" },
+    use_second_measure_tooltip: {
+      label: "Use 2nd measure as HTML tooltip",
+      type: "boolean",
+      default: false,
+      section: "Behaviour"
+    }
   },
 
   create(element) {
@@ -59,7 +65,6 @@ looker.plugins.visualizations.add({
     })();
   },
 
-  // Resolve selection to a field (accepts name OR label/label_short)
   _resolveField(fields, sel) {
     if (!sel) return undefined;
     return fields.find(f =>
@@ -98,47 +103,22 @@ looker.plugins.visualizations.add({
     let dims = fields.dimension_like || [];
     let meas = fields.measure_like || [];
 
-    // ---- BUILD CHOICES (robust) ----
-    // Preferred: use fields metadata
-    let dimDict = dims.map(d => ({
-      name: d.name,
-      label: d.label_short || d.label || d.name
-    }));
-    let measDict = meas.map(m => ({
-      name: m.name,
-      label: m.label_short || m.label || m.name
-    }));
-
-    // Fallback: if any label is literally 'undefined' or empty, rebuild from row keys
-    const badDims = dimDict.some(d => !d.label || d.label === 'undefined');
-    const badMeas = measDict.some(m => !m.label || m.label === 'undefined');
-
-    if ((badDims || badMeas) && data && data[0]) {
-      const keys = Object.keys(data[0] || {});
-      // heuristics: treat first 2 keys with object cells as dims, last numeric as measure
-      const asPairs = keys.map(k => ({
-        name: k,
-        label: k.split('.').pop().replace(/_/g, ' ')
-      }));
-      if (badDims) dimDict = asPairs;   // user will still be able to choose
-      if (badMeas) measDict = asPairs;
-    }
+    // Build choices (same as before)...
+    let dimDict = dims.map(d => ({ name: d.name, label: d.label_short || d.label || d.name }));
+    let measDict = meas.map(m => ({ name: m.name, label: m.label_short || m.label || m.name }));
 
     const dimLabels  = dimDict.map(d => d.label || d.name);
     const measLabels = measDict.map(m => m.label || m.name);
 
-    // Defaults
     if (!config.x_dim && dimLabels[0]) config.x_dim = dimLabels[0];
     if (!config.y_dim && (dimLabels[1] || dimLabels[0])) config.y_dim = dimLabels[1] || dimLabels[0];
     if (!config.value_measure && measLabels[0]) config.value_measure = measLabels[0];
 
-    // Feed the side panel plain label strings
     this.options.x_dim.values         = dimLabels;
     this.options.y_dim.values         = dimLabels;
     this.options.value_measure.values = measLabels;
     this.trigger('registerOptions', this.options);
 
-    // Resolve selections back to real field objects by name OR label
     const xF = this._resolveField(dims, config.x_dim) || dims.find(d => (d.label_short || d.label) === config.x_dim);
     const yF = this._resolveField(dims, config.y_dim) || dims.find(d => (d.label_short || d.label) === config.y_dim);
     const vF = this._resolveField(meas, config.value_measure) || meas.find(m => (m.label_short || m.label) === config.value_measure);
@@ -153,8 +133,7 @@ looker.plugins.visualizations.add({
     const getRendered = (row, field) => {
       const cell = row[field.name];
       if (!cell) return null;
-      const val = (cell.rendered ?? cell.value);
-      return (val === undefined || val === null || String(val).trim() === "") ? null : val;
+      return (cell.html ?? cell.rendered ?? cell.value) || null;
     };
     const getNumeric = (row, field) => {
       const cell = row[field.name];
@@ -163,16 +142,18 @@ looker.plugins.visualizations.add({
       return Number.isFinite(n) ? n : null;
     };
 
-    // --- Build X & Y categories + keep rows (skip rows with null X/Y) ---
+    // Pick second measure for HTML tooltip if toggle is on
+    const htmlF = config.use_second_measure_tooltip ? (meas[1] || null) : null;
+    const sanitize = (s) => s == null ? null : String(s).replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "");
+
+    // Build categories and rows (same as before)...
     const categoriesX = [];
     const categoriesY = [];
     const rows = [];
 
     const usingForcedX =
-      !!config.force_x_range &&
-      Number.isFinite(+config.x_min) &&
-      Number.isFinite(+config.x_max) &&
-      Number.isFinite(+config.x_step) &&
+      !!config.force_x_range && Number.isFinite(+config.x_min) &&
+      Number.isFinite(+config.x_max) && Number.isFinite(+config.x_step) &&
       +config.x_step !== 0;
 
     const buildRange = (min, max, step) => {
@@ -186,14 +167,12 @@ looker.plugins.visualizations.add({
     if (usingForcedX) {
       const rng = buildRange(+config.x_min, +config.x_max, +config.x_step);
       categoriesX.push(...rng);
-
       data.forEach(row => {
         const xLabel = getRendered(row, xF);
         const yLabel = getRendered(row, yF);
         if (xLabel == null || yLabel == null) return;
         rows.push(row);
-        const ys = String(yLabel);
-        if (!categoriesY.includes(ys)) categoriesY.push(ys);
+        if (!categoriesY.includes(String(yLabel))) categoriesY.push(String(yLabel));
       });
     } else {
       data.forEach(row => {
@@ -201,25 +180,20 @@ looker.plugins.visualizations.add({
         const yLabel = getRendered(row, yF);
         if (xLabel == null || yLabel == null) return;
         rows.push(row);
-        const xs = String(xLabel), ys = String(yLabel);
-        if (!categoriesX.includes(xs)) categoriesX.push(xs);
-        if (!categoriesY.includes(ys)) categoriesY.push(ys);
+        if (!categoriesX.includes(String(xLabel))) categoriesX.push(String(xLabel));
+        if (!categoriesY.includes(String(yLabel))) categoriesY.push(String(yLabel));
       });
     }
 
-    // Index maps
     const xIndex = new Map(categoriesX.map((c, i) => [c, i]));
     const yIndex = new Map(categoriesY.map((c, i) => [c, i]));
 
-    // Value range for legend
     const values = rows.map(r => getNumeric(r, vF)).filter(v => v != null && isFinite(v));
     const minV = values.length ? Math.min(...values) : 0;
     const maxV = values.length ? Math.max(...values) : 1;
     const span = Math.max(1e-9, maxV - minV);
-
     const treatZero = !!config.treat_zero_as_null;
 
-    // --- Layout sizing ---
     const totalRows = categoriesY.length;
     const rowH = Number.isFinite(+config.row_height) && +config.row_height > 0 ? +config.row_height : 32;
     const maxVisible = Math.max(1, Number.isFinite(+config.max_visible_rows) ? +config.max_visible_rows : 15);
@@ -228,14 +202,12 @@ looker.plugins.visualizations.add({
     const totalPlotHeight   = Math.max(visiblePlotHeight, totalRows * rowH);
     const chartHeight = visiblePlotHeight + V_PAD;
 
-    // Colours
     const startC = (config.heat_start_color || "#E6F2FF").trim();
     const legendEnd = (config.heat_end_color || "#007AFF").trim();
     const kw1End = (config.kw1_end || "#1f77b4").trim();
     const kw2End = (config.kw2_end || "#d62728").trim();
     const defEnd = (config.def_end || "#7f8c8d").trim();
 
-    // Build single-series points with per-point colours
     const points = rows.map(row => {
       const xLabel = String(getRendered(row, xF));
       const yLabel = String(getRendered(row, yF));
@@ -252,7 +224,10 @@ looker.plugins.visualizations.add({
       const t = value == null ? 0 : (value - minV) / span;
       const color = this._mixHex(startC, endC, Math.max(0, Math.min(1, t)));
 
-      return { x: xi, y: yi, value, color };
+      // add HTML tooltip if available
+      const html = htmlF ? sanitize(getRendered(row, htmlF)) : null;
+
+      return { x: xi, y: yi, value, color, custom: { html } };
     }).filter(Boolean);
 
     const tickPositionsX = categoriesX.map((_, i) => i);
@@ -275,16 +250,7 @@ looker.plugins.visualizations.add({
         min: 0,
         max: categoriesX.length - 1,
         tickPositions: tickPositionsX,
-        tickmarkPlacement: 'on',
-        startOnTick: true,
-        endOnTick: true,
-        showFirstLabel: true,
-        showLastLabel: true,
-        labels: {
-          step: Number.isFinite(+config.x_label_step) && +config.x_label_step > 0 ? +config.x_label_step : 1,
-          autoRotation: false,
-          allowOverlap: true
-        }
+        labels: { step: Number.isFinite(+config.x_label_step) && +config.x_label_step > 0 ? +config.x_label_step : 1 }
       },
       yAxis: {
         categories: categoriesY,
@@ -310,7 +276,11 @@ looker.plugins.visualizations.add({
       },
 
       tooltip: {
+        useHTML: !!config.use_second_measure_tooltip,
         formatter: function () {
+          if (config.use_second_measure_tooltip && this.point && this.point.custom && this.point.custom.html) {
+            return this.point.custom.html;
+          }
           const xLabel = this.series.xAxis.categories[this.point.x];
           const yLabel = this.series.yAxis.categories[this.point.y];
           const v = this.point.value;
