@@ -346,8 +346,11 @@ looker.plugins.visualizations.add({
               const yi = this.y;
               const raw = yRaw[yi];
               if (raw === undefined || raw === null) return;
-              // IMPORTANT: dashboards expect a single object payload
-              viz.trigger('filter', [{ field: yFieldName, value: raw }]);
+              viz.trigger('filter', [{
+                field: yFieldName,
+                value: String(raw),                // used for the actual filter
+                formatted: String(categoriesY[yi]) // optional; improves the chip label
+              }]);
             }
           }
         },
