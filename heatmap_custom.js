@@ -13,6 +13,9 @@ function loadScriptOnce(src) {
 looker.plugins.visualizations.add({
   id: "heatmap_flexible_axes",
   label: "Heatmap (flexible axes + gradient)",
+  supports: {
+    crossfilter: true
+  },
 
   options: {
     // ---- DATA ----
@@ -102,6 +105,16 @@ looker.plugins.visualizations.add({
     return "def";
   },
 
+  // basic HTML escape for safe useHTML labels
+  _escapeHTML(s) {
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  },
+
   async update(data, element, config, queryResponse) {
     await this._hcReady;
 
@@ -109,7 +122,7 @@ looker.plugins.visualizations.add({
     let dims = fields.dimension_like || [];
     let meas = fields.measure_like || [];
 
-    // Build choices (same as before)...
+    // Build choices...
     let dimDict = dims.map(d => ({ name: d.name, label: d.label_short || d.label || d.name }));
     let measDict = meas.map(m => ({ name: m.name, label: m.label_short || m.label || m.name }));
 
@@ -135,6 +148,10 @@ looker.plugins.visualizations.add({
       return;
     }
 
+    // Keep a reference for cross-filter triggers
+    const viz = this;
+    const yFieldName = yF.name;
+
     // Helpers
     const getRendered = (row, field) => {
       const cell = row[field.name];
@@ -152,7 +169,7 @@ looker.plugins.visualizations.add({
     const htmlF = config.use_second_measure_tooltip ? (meas[1] || null) : null;
     const sanitize = (s) => s == null ? null : String(s).replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "");
 
-    // Build categories and rows (same as before)...
+    // Build categories and rows...
     const categoriesX = [];
     const categoriesY = [];
     const rows = [];
@@ -230,7 +247,6 @@ looker.plugins.visualizations.add({
       const t = value == null ? 0 : (value - minV) / span;
       const color = this._mixHex(startC, endC, Math.max(0, Math.min(1, t)));
 
-      // add HTML tooltip if available
       const html = htmlF ? sanitize(getRendered(row, htmlF)) : null;
 
       return { x: xi, y: yi, value, color, custom: { html } };
@@ -238,7 +254,7 @@ looker.plugins.visualizations.add({
 
     const tickPositionsX = categoriesX.map((_, i) => i);
 
-    // Decimal places 
+    // Decimal places (safe fallback)
     const dp = Number.isFinite(+config.decimal_places) ? Math.max(0, +config.decimal_places) : 0;
 
     Highcharts.chart("hm_chart", {
@@ -247,7 +263,21 @@ looker.plugins.visualizations.add({
         styledMode: false,
         spacing: [10,10,10,10],
         height: chartHeight,
-        scrollablePlotArea: { minHeight: totalPlotHeight + V_PAD, scrollPositionY: 0 }
+        scrollablePlotArea: { minHeight: totalPlotHeight + V_PAD, scrollPositionY: 0 },
+        // Make Y-axis labels clickable after each render
+        events: {
+          render: function () {
+            const root = this.container;
+            root.querySelectorAll('.hm-y-label').forEach(el => {
+              if (el._hmBound) return; // avoid duplicate listeners
+              el._hmBound = true;
+              el.addEventListener('click', () => {
+                const yVal = el.getAttribute('data-y');
+                viz.trigger('filter', [{ field: yFieldName, value: yVal }]);
+              });
+            });
+          }
+        }
       },
       exporting: { enabled: false },
       title: { text: null },
@@ -266,7 +296,15 @@ looker.plugins.visualizations.add({
         title: { text: config.y_axis_title || null },
         reversed: true,
         tickInterval: 1,
-        labels: { step: 1 }
+        labels: {
+          step: 1,
+          useHTML: true,
+          formatter: function () {
+            const txt = viz._escapeHTML(this.value);
+            // Render as clickable HTML with a data attribute
+            return `<span class="hm-y-label" data-y="${txt}" style="cursor:pointer;text-decoration:underline;">${txt}</span>`;
+          }
+        }
       },
 
       colorAxis: {
