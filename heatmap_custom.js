@@ -273,29 +273,7 @@ looker.plugins.visualizations.add({
         styledMode: false,
         spacing: [10,10,10,10],
         height: chartHeight,
-        scrollablePlotArea: { minHeight: totalPlotHeight + V_PAD, scrollPositionY: 0 },
-        events: {
-          // Bind click handlers to Y labels each render
-          render: function () {
-            const root = this.container;
-            root.querySelectorAll('.hm-y-label').forEach(el => {
-              if (el._hmBound) return;
-              el._hmBound = true;
-              el.addEventListener('click', () => {
-                // Prefer the encoded category index; otherwise look it up by text
-                let yi = Number.parseInt(el.getAttribute('data-yi'), 10);
-                if (!Number.isFinite(yi)) {
-                  const key = (el.textContent || "").trim();
-                  yi = yIndex.has(key) ? yIndex.get(key) : -1;
-                }
-                if (yi < 0) return;
-                const raw = yRaw[yi];
-                if (raw === undefined || raw === null) return;
-                viz.trigger('filter', [{ field: yFieldName, value: String(raw) }]);
-              });
-            });
-          }
-        }
+        scrollablePlotArea: { minHeight: totalPlotHeight + V_PAD, scrollPositionY: 0 }
       },
       exporting: { enabled: false },
       title: { text: null },
@@ -317,14 +295,10 @@ looker.plugins.visualizations.add({
         labels: {
           step: 1,
           useHTML: true,
+          // Not clickable anymore (dashboard won't cross-filter from labels)
           formatter: function () {
             const txt = viz._escapeHTML(this.value);
-            // Use the REAL category index instead of this.pos
-            const idx = this.axis && Array.isArray(this.axis.categories)
-              ? this.axis.categories.indexOf(this.value)
-              : -1;
-            const realIdx = idx >= 0 ? idx : this.pos;
-            return `<span class="hm-y-label" data-yi="${realIdx}" style="cursor:pointer;text-decoration:underline;">${txt}</span>`;
+            return `<span class="hm-y-label">${txt}</span>`;
           }
         }
       },
@@ -365,7 +339,6 @@ looker.plugins.visualizations.add({
         borderWidth: Number.isFinite(+config.cell_border_width) ? +config.cell_border_width : 0,
         colorAxis: 0,
         data: points,
-        // Also allow filtering by clicking any cell (works reliably on dashboards)
         cursor: 'pointer',
         point: {
           events: {
@@ -373,7 +346,8 @@ looker.plugins.visualizations.add({
               const yi = this.y;
               const raw = yRaw[yi];
               if (raw === undefined || raw === null) return;
-              viz.trigger('filter', [{ field: yFieldName, value: String(raw) }]);
+              // IMPORTANT: dashboards expect a single object payload
+              viz.trigger('filter', { field: yFieldName, value: raw });
             }
           }
         },
