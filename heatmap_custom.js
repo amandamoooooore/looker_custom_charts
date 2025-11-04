@@ -72,7 +72,7 @@ looker.plugins.visualizations.add({
     })();
   },
 
-  // Resolve by NAME (the selects now store field names)
+  // Resolve by NAME (the selects store field names)
   _resolveField(fields, sel) {
     if (!sel) return undefined;
     return fields.find(f => f.name === sel);
@@ -358,6 +358,18 @@ looker.plugins.visualizations.add({
         borderWidth: Number.isFinite(+config.cell_border_width) ? +config.cell_border_width : 0,
         colorAxis: 0,
         data: points,
+        // 👇 also allow filtering by clicking any cell (works reliably on dashboards)
+        cursor: 'pointer',
+        point: {
+          events: {
+            click: function () {
+              const yi = this.y;
+              const raw = yRaw[yi];
+              if (raw === undefined || raw === null) return;
+              viz.trigger('filter', [{ field: yFieldName, value: String(raw) }]);
+            }
+          }
+        },
         dataLabels: {
           enabled: !!config.show_data_labels,
           formatter: function () {
