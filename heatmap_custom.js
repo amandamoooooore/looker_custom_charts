@@ -347,7 +347,7 @@ looker.plugins.visualizations.add({
               const raw = yRaw[yi];
               if (raw === undefined || raw === null) return;
               // IMPORTANT: dashboards expect a single object payload
-              viz.trigger('filter', { field: yFieldName, value: raw });
+              viz.trigger('filter', [{ field: yFieldName, value: raw }]);
             }
           }
         },
