@@ -282,13 +282,16 @@ looker.plugins.visualizations.add({
               if (el._hmBound) return;
               el._hmBound = true;
               el.addEventListener('click', () => {
-                const idxAttr = el.getAttribute('data-yi');
-                const yi = Number(idxAttr);
-                const raw = Number.isFinite(yi) ? yRaw[yi] : undefined;
-                const valueToFilter = (raw !== undefined && raw !== null)
-                  ? String(raw)
-                  : String(el.textContent || "");
-                viz.trigger('filter', [{ field: yFieldName, value: valueToFilter }]);
+                // Prefer the encoded category index; otherwise look it up by text
+                let yi = Number.parseInt(el.getAttribute('data-yi'), 10);
+                if (!Number.isFinite(yi)) {
+                  const key = (el.textContent || "").trim();
+                  yi = yIndex.has(key) ? yIndex.get(key) : -1;
+                }
+                if (yi < 0) return;
+                const raw = yRaw[yi];
+                if (raw === undefined || raw === null) return;
+                viz.trigger('filter', [{ field: yFieldName, value: String(raw) }]);
               });
             });
           }
@@ -316,8 +319,12 @@ looker.plugins.visualizations.add({
           useHTML: true,
           formatter: function () {
             const txt = viz._escapeHTML(this.value);
-            // Encode the category index so we can look up RAW value on click
-            return `<span class="hm-y-label" data-yi="${this.pos}" style="cursor:pointer;text-decoration:underline;">${txt}</span>`;
+            // Use the REAL category index instead of this.pos
+            const idx = this.axis && Array.isArray(this.axis.categories)
+              ? this.axis.categories.indexOf(this.value)
+              : -1;
+            const realIdx = idx >= 0 ? idx : this.pos;
+            return `<span class="hm-y-label" data-yi="${realIdx}" style="cursor:pointer;text-decoration:underline;">${txt}</span>`;
           }
         }
       },
@@ -358,7 +365,7 @@ looker.plugins.visualizations.add({
         borderWidth: Number.isFinite(+config.cell_border_width) ? +config.cell_border_width : 0,
         colorAxis: 0,
         data: points,
-        // 👇 also allow filtering by clicking any cell (works reliably on dashboards)
+        // Also allow filtering by clicking any cell (works reliably on dashboards)
         cursor: 'pointer',
         point: {
           events: {
