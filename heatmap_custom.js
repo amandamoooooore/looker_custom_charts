@@ -13,16 +13,14 @@ function loadScriptOnce(src) {
 looker.plugins.visualizations.add({
   id: "heatmap_flexible_axes",
   label: "Heatmap (flexible axes + gradient)",
-  supports: {
-    crossfilter: true
-  },
+  supports: { crossfilter: true },
 
   options: {
     // ---- DATA ----
     x_dim:         { label: "X Dimension", type: "string", display: "select", values: [], section: "Data" },
     y_dim:         { label: "Y Dimension", type: "string", display: "select", values: [], section: "Data" },
     value_measure: { label: "Value Measure", type: "string", display: "select", values: [], section: "Data" },
-    
+
     // ---- X AXIS ----
     x_axis_title:  { label: "Title", type: "string", default: "", section: "X Axis" },
     reverse_x_axis:{ label: "Reverse", type: "boolean", default: false, section: "X Axis" },
@@ -119,12 +117,12 @@ looker.plugins.visualizations.add({
     await this._hcReady;
 
     const fields = (queryResponse.fields || {});
-    let dims = fields.dimension_like || [];
-    let meas = fields.measure_like || [];
+    const dims = fields.dimension_like || [];
+    const meas = fields.measure_like || [];
 
     // Build choices...
-    let dimDict = dims.map(d => ({ name: d.name, label: d.label_short || d.label || d.name }));
-    let measDict = meas.map(m => ({ name: m.name, label: m.label_short || m.label || m.name }));
+    const dimDict = dims.map(d => ({ name: d.name, label: d.label_short || d.label || d.name }));
+    const measDict = meas.map(m => ({ name: m.name, label: m.label_short || m.label || m.name }));
 
     const dimLabels  = dimDict.map(d => d.label || d.name);
     const measLabels = measDict.map(m => m.label || m.name);
@@ -158,6 +156,12 @@ looker.plugins.visualizations.add({
       if (!cell) return null;
       return (cell.html ?? cell.rendered ?? cell.value) || null;
     };
+    const getRaw = (row, field) => {
+      const cell = row[field.name];
+      if (!cell) return null;
+      // Use the *raw* value for filters (numbers or strings)
+      return ('value' in cell) ? cell.value : null;
+    };
     const getNumeric = (row, field) => {
       const cell = row[field.name];
       if (!cell || !('value' in cell)) return null;
@@ -165,13 +169,14 @@ looker.plugins.visualizations.add({
       return Number.isFinite(n) ? n : null;
     };
 
-    // Pick second measure for HTML tooltip if toggle is on
+    // Optional 2nd measure for HTML tooltip
     const htmlF = config.use_second_measure_tooltip ? (meas[1] || null) : null;
     const sanitize = (s) => s == null ? null : String(s).replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "");
 
-    // Build categories and rows...
+    // Build categories and rows + keep RAW Y values aligned with categories
     const categoriesX = [];
     const categoriesY = [];
+    const yRaw = [];            // <-- RAW values, same indices as categoriesY
     const rows = [];
 
     const usingForcedX =
@@ -187,24 +192,34 @@ looker.plugins.visualizations.add({
       return out;
     };
 
+    const pushYIfNew = (label, raw) => {
+      const sLabel = String(label);
+      if (!categoriesY.includes(sLabel)) {
+        categoriesY.push(sLabel);
+        yRaw.push(raw); // keep raw aligned
+      }
+    };
+
     if (usingForcedX) {
       const rng = buildRange(+config.x_min, +config.x_max, +config.x_step);
       categoriesX.push(...rng);
       data.forEach(row => {
         const xLabel = getRendered(row, xF);
         const yLabel = getRendered(row, yF);
+        const yValueRaw = getRaw(row, yF);
         if (xLabel == null || yLabel == null) return;
         rows.push(row);
-        if (!categoriesY.includes(String(yLabel))) categoriesY.push(String(yLabel));
+        pushYIfNew(yLabel, yValueRaw);
       });
     } else {
       data.forEach(row => {
         const xLabel = getRendered(row, xF);
         const yLabel = getRendered(row, yF);
+        const yValueRaw = getRaw(row, yF);
         if (xLabel == null || yLabel == null) return;
         rows.push(row);
         if (!categoriesX.includes(String(xLabel))) categoriesX.push(String(xLabel));
-        if (!categoriesY.includes(String(yLabel))) categoriesY.push(String(yLabel));
+        pushYIfNew(yLabel, yValueRaw);
       });
     }
 
@@ -238,7 +253,7 @@ looker.plugins.visualizations.add({
       const value  = (treatZero && num === 0) ? null : num;
 
       const xi = xIndex.get(xLabel);
-      const yi = yIndex.get(yLabel);
+      const yi = yIndex.get(String(yLabel));
       if (xi == null || yi == null) return null;
 
       const bucket = this._bucketForY(yLabel, config);
@@ -264,16 +279,19 @@ looker.plugins.visualizations.add({
         spacing: [10,10,10,10],
         height: chartHeight,
         scrollablePlotArea: { minHeight: totalPlotHeight + V_PAD, scrollPositionY: 0 },
-        // Make Y-axis labels clickable after each render
         events: {
+          // Bind click handlers to Y labels each render
           render: function () {
             const root = this.container;
             root.querySelectorAll('.hm-y-label').forEach(el => {
-              if (el._hmBound) return; // avoid duplicate listeners
+              if (el._hmBound) return;
               el._hmBound = true;
               el.addEventListener('click', () => {
-                const yVal = el.getAttribute('data-y');
-                viz.trigger('filter', [{ field: yFieldName, value: yVal }]);
+                const idxAttr = el.getAttribute('data-yi');
+                const yi = Number(idxAttr);
+                const raw = Number.isFinite(yi) ? yRaw[yi] : undefined;
+                const valueToFilter = (raw !== undefined) ? raw : el.textContent;
+                viz.trigger('filter', [{ field: yFieldName, value: valueToFilter }]);
               });
             });
           }
@@ -301,8 +319,8 @@ looker.plugins.visualizations.add({
           useHTML: true,
           formatter: function () {
             const txt = viz._escapeHTML(this.value);
-            // Render as clickable HTML with a data attribute
-            return `<span class="hm-y-label" data-y="${txt}" style="cursor:pointer;text-decoration:underline;">${txt}</span>`;
+            // Encode the category index so we can look up RAW value
+            return `<span class="hm-y-label" data-yi="${this.pos}" style="cursor:pointer;text-decoration:underline;">${txt}</span>`;
           }
         }
       },
