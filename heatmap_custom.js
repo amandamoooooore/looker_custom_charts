@@ -72,11 +72,10 @@ looker.plugins.visualizations.add({
     })();
   },
 
+  // Resolve by NAME (the selects now store field names)
   _resolveField(fields, sel) {
     if (!sel) return undefined;
-    return fields.find(f =>
-      f.name === sel || f.label === sel || f.label_short === sel
-    );
+    return fields.find(f => f.name === sel);
   },
 
   // Colour helpers
@@ -103,7 +102,7 @@ looker.plugins.visualizations.add({
     return "def";
   },
 
-  // basic HTML escape for safe useHTML labels
+  // basic HTML escape for useHTML labels
   _escapeHTML(s) {
     return String(s)
       .replace(/&/g, "&amp;")
@@ -120,25 +119,22 @@ looker.plugins.visualizations.add({
     const dims = fields.dimension_like || [];
     const meas = fields.measure_like || [];
 
-    // Build choices...
-    const dimDict = dims.map(d => ({ name: d.name, label: d.label_short || d.label || d.name }));
-    const measDict = meas.map(m => ({ name: m.name, label: m.label_short || m.label || m.name }));
+    // ---- Build choices — use field NAMES as values ----
+    const dimChoices  = (dims || []).map(d => d.name);
+    const measChoices = (meas || []).map(m => m.name);
 
-    const dimLabels  = dimDict.map(d => d.label || d.name);
-    const measLabels = measDict.map(m => m.label || m.name);
+    if (!config.x_dim && dimChoices[0])                      config.x_dim = dimChoices[0];
+    if (!config.y_dim && (dimChoices[1] || dimChoices[0]))   config.y_dim = dimChoices[1] || dimChoices[0];
+    if (!config.value_measure && measChoices[0])             config.value_measure = measChoices[0];
 
-    if (!config.x_dim && dimLabels[0]) config.x_dim = dimLabels[0];
-    if (!config.y_dim && (dimLabels[1] || dimLabels[0])) config.y_dim = dimLabels[1] || dimLabels[0];
-    if (!config.value_measure && measLabels[0]) config.value_measure = measLabels[0];
-
-    this.options.x_dim.values         = dimLabels;
-    this.options.y_dim.values         = dimLabels;
-    this.options.value_measure.values = measLabels;
+    this.options.x_dim.values         = dimChoices;
+    this.options.y_dim.values         = dimChoices;
+    this.options.value_measure.values = measChoices;
     this.trigger('registerOptions', this.options);
 
-    const xF = this._resolveField(dims, config.x_dim) || dims.find(d => (d.label_short || d.label) === config.x_dim);
-    const yF = this._resolveField(dims, config.y_dim) || dims.find(d => (d.label_short || d.label) === config.y_dim);
-    const vF = this._resolveField(meas, config.value_measure) || meas.find(m => (m.label_short || m.label) === config.value_measure);
+    const xF = this._resolveField(dims, config.x_dim);
+    const yF = this._resolveField(dims, config.y_dim);
+    const vF = this._resolveField(meas, config.value_measure);
 
     const container = document.getElementById("hm_chart");
     if (!xF || !yF || !vF) {
@@ -159,8 +155,7 @@ looker.plugins.visualizations.add({
     const getRaw = (row, field) => {
       const cell = row[field.name];
       if (!cell) return null;
-      // Use the *raw* value for filters (numbers or strings)
-      return ('value' in cell) ? cell.value : null;
+      return ('value' in cell) ? cell.value : null; // raw (for filtering)
     };
     const getNumeric = (row, field) => {
       const cell = row[field.name];
@@ -173,10 +168,10 @@ looker.plugins.visualizations.add({
     const htmlF = config.use_second_measure_tooltip ? (meas[1] || null) : null;
     const sanitize = (s) => s == null ? null : String(s).replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "");
 
-    // Build categories and rows + keep RAW Y values aligned with categories
+    // ---- Build categories and rows, and keep RAW Y values aligned ----
     const categoriesX = [];
     const categoriesY = [];
-    const yRaw = [];            // <-- RAW values, same indices as categoriesY
+    const yRaw = []; // raw values aligned with categoriesY
     const rows = [];
 
     const usingForcedX =
@@ -196,7 +191,7 @@ looker.plugins.visualizations.add({
       const sLabel = String(label);
       if (!categoriesY.includes(sLabel)) {
         categoriesY.push(sLabel);
-        yRaw.push(raw); // keep raw aligned
+        yRaw.push(raw);
       }
     };
 
@@ -290,7 +285,9 @@ looker.plugins.visualizations.add({
                 const idxAttr = el.getAttribute('data-yi');
                 const yi = Number(idxAttr);
                 const raw = Number.isFinite(yi) ? yRaw[yi] : undefined;
-                const valueToFilter = (raw !== undefined) ? raw : el.textContent;
+                const valueToFilter = (raw !== undefined && raw !== null)
+                  ? String(raw)
+                  : String(el.textContent || "");
                 viz.trigger('filter', [{ field: yFieldName, value: valueToFilter }]);
               });
             });
@@ -319,7 +316,7 @@ looker.plugins.visualizations.add({
           useHTML: true,
           formatter: function () {
             const txt = viz._escapeHTML(this.value);
-            // Encode the category index so we can look up RAW value
+            // Encode the category index so we can look up RAW value on click
             return `<span class="hm-y-label" data-yi="${this.pos}" style="cursor:pointer;text-decoration:underline;">${txt}</span>`;
           }
         }
