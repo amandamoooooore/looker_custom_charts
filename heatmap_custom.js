@@ -53,6 +53,12 @@ looker.plugins.visualizations.add({
       type: "boolean",
       default: false,
       section: "Behaviour"
+    },
+    decimal_places: {
+      label: "Decimal Places",
+      type: "number",
+      default: 0,
+      section: "Behaviour"
     }
   },
 
@@ -232,6 +238,9 @@ looker.plugins.visualizations.add({
 
     const tickPositionsX = categoriesX.map((_, i) => i);
 
+    // Decimal places 
+    const dp = Number.isFinite(+config.decimal_places) ? Math.max(0, +config.decimal_places) : 0;
+
     Highcharts.chart("hm_chart", {
       chart: {
         type: "heatmap",
@@ -284,7 +293,7 @@ looker.plugins.visualizations.add({
           const xLabel = this.series.xAxis.categories[this.point.x];
           const yLabel = this.series.yAxis.categories[this.point.y];
           const v = this.point.value;
-          return `<b>${yLabel}</b><br/>${xLabel}: <b>${(v==null?'–':Highcharts.numberFormat(v,0))}</b>`;
+          return `<b>${yLabel}</b><br/>${xLabel}: <b>${(v==null?'–':Highcharts.numberFormat(v, dp))}</b>`;
         }
       },
 
@@ -300,7 +309,7 @@ looker.plugins.visualizations.add({
           enabled: !!config.show_data_labels,
           formatter: function () {
             const v = this.point.value;
-            return (v == null ? "" : Highcharts.numberFormat(v, 0));
+            return (v == null ? "" : Highcharts.numberFormat(v, dp));
           }
         }
       }]
