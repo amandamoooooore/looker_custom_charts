@@ -72,6 +72,12 @@ looker.plugins.visualizations.add({
       type: "number",
       default: 0,
       section: "Behaviour"
+    },
+    no_data_message: {
+      label: "No-data Message",
+      type: "string",
+      default: "No data to display",
+      section: "Behaviour"
     }
   },
 
@@ -107,7 +113,7 @@ looker.plugins.visualizations.add({
   },
   _bucketForY(yLabel, cfg) {
     const s  = (yLabel || "").toString().toLowerCase();
-       const k1 = (cfg.kw1_text || "").toLowerCase().trim();
+    const k1 = (cfg.kw1_text || "").toLowerCase().trim();
     const k2 = (cfg.kw2_text || "").toLowerCase().trim();
     if (k1 && s.includes(k1)) return "kw1";
     if (k2 && s.includes(k2)) return "kw2";
@@ -122,6 +128,15 @@ looker.plugins.visualizations.add({
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
+  },
+
+  // Render only a centered "no data" message
+  _showNoData(container, msg) {
+    const message = (msg == null ? "" : String(msg)).trim() || "No data";
+    container.innerHTML =
+      `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;text-align:center;color:#666;font-family:inherit;">
+         ${this._escapeHTML(message)}
+       </div>`;
   },
 
   async update(data, element, config, queryResponse) {
@@ -151,6 +166,12 @@ looker.plugins.visualizations.add({
     const container = document.getElementById("hm_chart");
     if (!xF || !yF || !vF) {
       container.innerHTML = "<div style='padding:12px;color:#666'>Add 2 dimensions and 1 measure, then click <b>Run</b>.</div>";
+      return;
+    }
+
+    // If there's no result rows at all, show only the custom message
+    if (!data || data.length === 0) {
+      this._showNoData(container, config.no_data_message);
       return;
     }
 
@@ -284,6 +305,12 @@ looker.plugins.visualizations.add({
 
       return { x: xi, y: yi, value, color, custom: { html } };
     }).filter(Boolean);
+
+    // If we ended up with no points (e.g., all nulls / filtered away), show only message
+    if (!points.length || !categoriesY.length || !categoriesX.length) {
+      this._showNoData(container, config.no_data_message);
+      return;
+    }
 
     const tickPositionsX = categoriesX.map((_, i) => i);
 
