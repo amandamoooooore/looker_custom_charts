@@ -34,6 +34,18 @@ looker.plugins.visualizations.add({
     y_axis_title:  { label: "Title", type: "string", default: "", section: "Y Axis" },
     row_height:    { label: "Row Height (px)", type: "number", default: 32, section: "Y Axis" },
     max_visible_rows: { label: "Max Visible Rows (scroll if more)", type: "number", default: 15, section: "Y Axis" },
+    y_sort_mode: {
+      label: "Y Sort Mode",
+      type: "string",
+      display: "select",
+      values: [
+        { "Natural Data Order": "natural" },
+        { "Alphabetical (A → Z)": "alpha" },
+        { "Reverse Alphabetical (Z → A)": "alpha_desc" }
+      ],
+      default: "natural",
+      section: "Y Axis"
+    },
 
     // ---- COLOURS ----
     heat_start_color: { label: "Gradient Start HEX", type: "string", default: "#E6F2FF", section: "Colours" },
@@ -95,7 +107,7 @@ looker.plugins.visualizations.add({
   },
   _bucketForY(yLabel, cfg) {
     const s  = (yLabel || "").toString().toLowerCase();
-    const k1 = (cfg.kw1_text || "").toLowerCase().trim();
+       const k1 = (cfg.kw1_text || "").toLowerCase().trim();
     const k2 = (cfg.kw2_text || "").toLowerCase().trim();
     if (k1 && s.includes(k1)) return "kw1";
     if (k2 && s.includes(k2)) return "kw2";
@@ -144,7 +156,6 @@ looker.plugins.visualizations.add({
 
     // Keep a reference for cross-filter triggers
     const viz = this;
-    const yFieldName = yF.name;
 
     // Helpers
     const getRendered = (row, field) => {
@@ -170,8 +181,8 @@ looker.plugins.visualizations.add({
 
     // ---- Build categories and rows, and keep RAW Y values aligned ----
     const categoriesX = [];
-    const categoriesY = [];
-    const yRaw = []; // raw values aligned with categoriesY
+    let categoriesY = []; // will sort optionally
+    let yRaw = [];        // raw values aligned with categoriesY
     const rows = [];
 
     const usingForcedX =
@@ -216,6 +227,18 @@ looker.plugins.visualizations.add({
         if (!categoriesX.includes(String(xLabel))) categoriesX.push(String(xLabel));
         pushYIfNew(yLabel, yValueRaw);
       });
+    }
+
+    // --- Apply Y sort mode BEFORE building indices ---
+    if (config.y_sort_mode && config.y_sort_mode !== "natural") {
+      const zipped = categoriesY.map((label, idx) => ({ label, raw: yRaw[idx] }));
+      if (config.y_sort_mode === "alpha") {
+        zipped.sort((a, b) => a.label.localeCompare(b.label));
+      } else if (config.y_sort_mode === "alpha_desc") {
+        zipped.sort((a, b) => b.label.localeCompare(a.label));
+      }
+      categoriesY = zipped.map(z => z.label);
+      yRaw        = zipped.map(z => z.raw);
     }
 
     const xIndex = new Map(categoriesX.map((c, i) => [c, i]));
@@ -295,7 +318,7 @@ looker.plugins.visualizations.add({
         labels: {
           step: 1,
           useHTML: true,
-          // Not clickable anymore (dashboard won't cross-filter from labels)
+          // Not clickable (dashboards don't cross-filter from labels)
           formatter: function () {
             const txt = viz._escapeHTML(this.value);
             return `<span class="hm-y-label">${txt}</span>`;
@@ -346,10 +369,11 @@ looker.plugins.visualizations.add({
               const yi = this.y;
               const raw = yRaw[yi];
               if (raw === undefined || raw === null) return;
+              // Cross-filter payload must be an array of objects
               viz.trigger('filter', [{
-                field: yFieldName,
-                value: String(raw),                // used for the actual filter
-                formatted: String(categoriesY[yi]) // optional; improves the chip label
+                field: yF.name,
+                value: String(raw),
+                formatted: String(categoriesY[yi])
               }]);
             }
           }
