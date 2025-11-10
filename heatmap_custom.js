@@ -380,6 +380,11 @@ looker.plugins.visualizations.add({
 
       tooltip: {
         useHTML: !!config.use_second_measure_tooltip,
+        backgroundColor: '#fff',        // <— opaque background
+        borderColor: '#9aa0a6',
+        borderWidth: 1,
+        borderRadius: 6,
+        shadow: true,
         formatter: function () {
           if (config.use_second_measure_tooltip && this.point && this.point.custom && this.point.custom.html) {
             return this.point.custom.html;
