@@ -31,8 +31,8 @@ looker.plugins.visualizations.add({
     x_step:        { label: "Step",          type: "number",  default: 1,  section: "X Axis" },
 
     // ---- Y AXIS ----
-    y_axis_title:  { label: "Title", type: "string", default: "", section: "Y Axis" },
-    row_height:    { label: "Row Height (px)", type: "number", default: 32, section: "Y Axis" },
+    y_axis_title:     { label: "Title", type: "string", default: "", section: "Y Axis" },
+    row_height:       { label: "Row Height (px)", type: "number", default: 32, section: "Y Axis" },
     max_visible_rows: { label: "Max Visible Rows (scroll if more)", type: "number", default: 15, section: "Y Axis" },
     y_sort_mode: {
       label: "Y Sort Mode",
@@ -44,6 +44,12 @@ looker.plugins.visualizations.add({
         { "Reverse Alphabetical (Z → A)": "alpha_desc" }
       ],
       default: "natural",
+      section: "Y Axis"
+    },
+    bold_y_keyword: {
+      label: "Bold Y labels containing",
+      type: "string",
+      default: "",
       section: "Y Axis"
     },
 
@@ -345,10 +351,14 @@ looker.plugins.visualizations.add({
         labels: {
           step: 1,
           useHTML: true,
-          // Not clickable (dashboards don't cross-filter from labels)
           formatter: function () {
-            const txt = viz._escapeHTML(this.value);
-            return `<span class="hm-y-label">${txt}</span>`;
+            const raw = String(this.value);
+            const txt = viz._escapeHTML(raw);
+            const kw  = (config.bold_y_keyword || "").toLowerCase().trim();
+            const isBold = kw && raw.toLowerCase().includes(kw);
+            return isBold
+              ? `<span class="hm-y-label" style="font-weight:700">${txt}</span>`
+              : `<span class="hm-y-label">${txt}</span>`;
           }
         }
       },
@@ -396,7 +406,6 @@ looker.plugins.visualizations.add({
               const yi = this.y;
               const raw = yRaw[yi];
               if (raw === undefined || raw === null) return;
-              // Cross-filter payload must be an array of objects
               viz.trigger('filter', [{
                 field: yF.name,
                 value: String(raw),
