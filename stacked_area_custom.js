@@ -11,7 +11,7 @@ function loadScriptOnce(src) {
 }
 
 looker.plugins.visualizations.add({
-  id: "stacked_area_custom",
+  id: "stacked_area_flexible",
   label: "Stacked Area (custom)",
   supports: { crossfilter: true },
 
@@ -20,29 +20,43 @@ looker.plugins.visualizations.add({
     x_dim:         { label: "X Dimension", type: "string", display: "select", values: [], section: "Data" },
     series_dim:    { label: "Series Dimension", type: "string", display: "select", values: [], section: "Data" },
     value_measure: { label: "Value Measure", type: "string", display: "select", values: [], section: "Data" },
-    use_tooltip_field: { label: "Use 2nd measure for HTML tooltip", type: "boolean", default: false, section: "Data" },
-    no_data_message: {
-      label: "No-data Message",
-      type: "string",
-      default: "No data to display",
-      section: "Behaviour"
-    },
-    area_opacity: {
-      label: "Area Opacity (0–1)",
-      type: "number",
-      default: 0.6,
-      section: "Appearance"
-    },
-    show_markers: {
-      label: "Show Point Markers",
-      type: "boolean",
-      default: false,
-      section: "Appearance"
-    }
+
+    // --- X AXIS ---
+    x_axis_title:  { label: "Title", type: "string", default: "", section: "X Axis" },
+    reverse_x_axis:{ label: "Reverse", type: "boolean", default: false, section: "X Axis" },
+    x_label_step:  { label: "Label Step", type: "number", default: 1, section: "X Axis" },
+    force_x_range: { label: "Use Custom Min/Max/Step", type: "boolean", default: true, section: "X Axis" },
+    x_min:         { label: "Min (numeric)", type: "number",  default: 1,  section: "X Axis" },
+    x_max:         { label: "Max (numeric)", type: "number",  default: 30, section: "X Axis" },
+    x_step:        { label: "Step",          type: "number",  default: 1,  section: "X Axis" },
+
+    // --- APPEARANCE/BEHAVIOUR ---
+    area_opacity:  { label: "Area Opacity (0–1)", type: "number", default: 0.6, section: "Appearance" },
+    show_markers:  { label: "Show Point Markers", type: "boolean", default: false, section: "Appearance" },
+    use_tooltip_field: { label: "Use 2nd measure for HTML tooltip", type: "boolean", default: false, section: "Behaviour" },
+    no_data_message:   { label: "No-data Message", type: "string", default: "No data to display", section: "Behaviour" }
   },
 
   create(element) {
     element.innerHTML = "<div id='area_chart' style='width:100%;height:100%;'></div>";
+
+    // CSS for opaque HTML tooltips that auto-size
+    if (!document.getElementById("sa_area_css")) {
+      const css = document.createElement("style");
+      css.id = "sa_area_css";
+      css.textContent = `
+        .highcharts-tooltip.sa-tooltip > span{
+          background: transparent !important; border: 0 !important; padding: 0 !important;
+          white-space: nowrap !important; display: inline-block !important;
+        }
+        .highcharts-tooltip.sa-tooltip .sa-tip-inner{
+          display: inline-block; background:#fff; border:1px solid #9aa0a6; border-radius:6px;
+          padding:8px 10px; box-shadow:0 2px 8px rgba(0,0,0,.15); color:#000; white-space:nowrap;
+        }
+      `;
+      document.head.appendChild(css);
+    }
+
     this._hcReady = (async () => {
       await loadScriptOnce("https://code.highcharts.com/highcharts.js");
       await loadScriptOnce("https://code.highcharts.com/modules/accessibility.js");
@@ -77,14 +91,15 @@ looker.plugins.visualizations.add({
     const dims = fields.dimension_like || [];
     const meas = fields.measure_like || [];
 
-    // set default field selections
-    const dimChoices = dims.map(d => d.name);
+    // defaults
+    const dimChoices  = dims.map(d => d.name);
     const measChoices = meas.map(m => m.name);
-    if (!config.x_dim && dimChoices[0]) config.x_dim = dimChoices[0];
-    if (!config.series_dim && dimChoices[1]) config.series_dim = dimChoices[1] || dimChoices[0];
-    if (!config.value_measure && measChoices[0]) config.value_measure = measChoices[0];
-    this.options.x_dim.values = dimChoices;
-    this.options.series_dim.values = dimChoices;
+    if (!config.x_dim && dimChoices[0])                      config.x_dim = dimChoices[0];
+    if (!config.series_dim && (dimChoices[1] || dimChoices[0])) config.series_dim = dimChoices[1] || dimChoices[0];
+    if (!config.value_measure && measChoices[0])             config.value_measure = measChoices[0];
+
+    this.options.x_dim.values         = dimChoices;
+    this.options.series_dim.values    = dimChoices;
     this.options.value_measure.values = measChoices;
     this.trigger("registerOptions", this.options);
 
@@ -103,79 +118,111 @@ looker.plugins.visualizations.add({
       return;
     }
 
-    // --- Helpers ---
-    const getRendered = (row, f) => row[f.name]?.rendered ?? row[f.name]?.html ?? row[f.name]?.value ?? null;
+    // helpers
+    const getRendered = (row, f) => row[f.name]?.html ?? row[f.name]?.rendered ?? row[f.name]?.value ?? null;
     const getRaw = (row, f) => ('value' in (row[f.name] || {})) ? row[f.name].value : null;
     const getNum = (row, f) => {
       const v = Number(row[f.name]?.value);
       return Number.isFinite(v) ? v : null;
     };
 
-    // --- Build structure ---
-    const seriesMap = new Map();
+    // Build the X categories
+    const usingForcedX =
+      !!config.force_x_range && Number.isFinite(+config.x_min) &&
+      Number.isFinite(+config.x_max) && Number.isFinite(+config.x_step) &&
+      +config.x_step !== 0;
+
+    const buildRange = (min, max, step) => {
+      const s = Math.abs(step) || 1;
+      const out = [];
+      if (max >= min) for (let v=min; v<=max; v+=s) out.push(String(v));
+      else            for (let v=min; v>=max; v-=s) out.push(String(v));
+      return out;
+    };
+
     const categoriesSet = new Set();
+    const seriesMap = new Map(); // name -> [{xLabel, y, html, raw}]
 
     data.forEach(row => {
       const xLabel = String(getRendered(row, xF));
-      const seriesLabel = String(getRendered(row, sF));
-      const val = getNum(row, vF);
-      const htmlTip = tooltipF ? getRendered(row, tooltipF) : null;
-      if (xLabel == null || seriesLabel == null || val == null) return;
-      categoriesSet.add(xLabel);
-      if (!seriesMap.has(seriesLabel)) seriesMap.set(seriesLabel, []);
-      seriesMap.get(seriesLabel).push({ xLabel, y: val, html: htmlTip, raw: getRaw(row, sF) });
+      const sLabel = String(getRendered(row, sF));
+      const y = getNum(row, vF);
+      if (xLabel == null || sLabel == null || y == null) return;
+
+      if (!usingForcedX) categoriesSet.add(xLabel);
+      if (!seriesMap.has(sLabel)) seriesMap.set(sLabel, []);
+      seriesMap.get(sLabel).push({
+        xLabel,
+        y,
+        html: tooltipF ? getRendered(row, tooltipF) : null,
+        raw: getRaw(row, sF)
+      });
     });
 
-    const categories = Array.from(categoriesSet);
+    const categories = usingForcedX
+      ? buildRange(+config.x_min, +config.x_max, +config.x_step)
+      : Array.from(categoriesSet);
+
     if (categories.length === 0 || seriesMap.size === 0) {
       this._showNoData(container, config.no_data_message);
       return;
     }
 
-    // --- Build series ---
+    // build series over full category range (fill gaps with 0)
     const series = [];
-    for (const [label, points] of seriesMap.entries()) {
-      const dataArr = categories.map(xCat => {
-        const p = points.find(p => p.xLabel === xCat);
-        return p ? { y: p.y, custom: { html: p.html, raw: p.raw } } : { y: 0 };
+    for (const [name, points] of seriesMap.entries()) {
+      const byX = new Map(points.map(p => [String(p.xLabel), p]));
+      const dataArr = categories.map(cat => {
+        const p = byX.get(String(cat));
+        return p
+          ? { y: p.y, custom: { html: p.html, raw: p.raw } }
+          : { y: 0 };
       });
-      series.push({ name: label, data: dataArr });
+      series.push({ name, data: dataArr });
     }
 
-    // --- Draw chart ---
     const viz = this;
+
     Highcharts.chart("area_chart", {
       chart: {
         type: "area",
         spacing: [10,10,10,10],
-        height: element.clientHeight || 400
+        height: element.clientHeight || 360
       },
       title: { text: null },
       exporting: { enabled: false },
+
       xAxis: {
         categories,
+        reversed: !!config.reverse_x_axis,
+        title: { text: config.x_axis_title || null },
         tickmarkPlacement: "on",
-        title: { text: xF.label_short || xF.label }
+        labels: {
+          step: Number.isFinite(+config.x_label_step) && +config.x_label_step > 0 ? +config.x_label_step : 1
+        }
       },
+
       yAxis: {
-        title: { text: vF.label_short || vF.label },
-        stackLabels: { enabled: false }
+        min: 0,
+        title: { text: vF.label_short || vF.label }
       },
+
       legend: { align: "center", verticalAlign: "bottom" },
+
       plotOptions: {
         area: {
           stacking: "normal",
           marker: { enabled: !!config.show_markers, radius: 3 },
-          opacity: Math.max(0, Math.min(1, config.area_opacity || 0.6)),
+          opacity: Math.max(0, Math.min(1, +config.area_opacity || 0.6)),
           cursor: "pointer",
           point: {
             events: {
               click: function () {
-                const rawVal = this.custom?.raw;
-                if (rawVal == null) return;
+                const raw = this.custom?.raw;
+                if (raw == null) return;
                 viz.trigger("filter", [{
                   field: sF.name,
-                  value: String(rawVal),
+                  value: String(raw),
                   formatted: String(this.series.name)
                 }]);
               }
@@ -183,21 +230,21 @@ looker.plugins.visualizations.add({
           }
         }
       },
+
       tooltip: {
         useHTML: !!config.use_tooltip_field,
-        backgroundColor: "#fff",
-        borderColor: "#9aa0a6",
-        borderRadius: 6,
-        borderWidth: 1,
-        shadow: true,
-        style: { color: "#000" },
+        className: "sa-tooltip",
+        outside: true,
+        style: { color: "#000", whiteSpace: "nowrap" },
         formatter: function () {
+          const wrap = (html) => `<span class="sa-tip-inner">${html}</span>`;
           if (config.use_tooltip_field && this.point?.custom?.html) {
-            return this.point.custom.html;
+            return wrap(this.point.custom.html);
           }
-          return `<b>${this.series.name}</b><br/>${this.x}: <b>${Highcharts.numberFormat(this.y, 4)}</b>`;
+          return wrap(`<b>${this.series.name}</b><br/>${this.x}: <b>${Highcharts.numberFormat(this.y, 4)}</b>`);
         }
       },
+
       series
     });
   }
