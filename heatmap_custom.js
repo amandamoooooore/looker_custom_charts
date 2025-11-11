@@ -89,26 +89,35 @@ looker.plugins.visualizations.add({
 
   create(element) {
     element.innerHTML = "<div id='hm_chart' style='width:100%;height:100%;'></div>";
-  
-    // Inject CSS for HTML tooltips (opaque background)
+
+    // Inject CSS once for HTML tooltips (opaque + auto width)
     if (!document.getElementById("hm_heatmap_css")) {
       const css = document.createElement("style");
       css.id = "hm_heatmap_css";
       css.textContent = `
+        /* Reset Highcharts HTML tooltip wrapper and provide opaque inner box */
+        .highcharts-tooltip.hm-tooltip > span{
+          background: transparent !important;
+          border: 0 !important;
+          padding: 0 !important;
+          white-space: nowrap !important; /* let width grow with content */
+          display: inline-block !important;
+        }
         .highcharts-tooltip.hm-tooltip .hm-tooltip-inner{
-          display:block;
-          background:#ffffff;           /* opaque */
-          border:1px solid #9aa0a6;
-          border-radius:6px;
-          padding:8px 10px;
-          box-shadow:0 2px 8px rgba(0,0,0,.15);
-          color:#000;
-          white-space:normal;
+          display: inline-block;          /* shrink/grow to content */
+          background: #ffffff;            /* opaque bg */
+          border: 1px solid #9aa0a6;
+          border-radius: 6px;
+          padding: 8px 10px;
+          box-shadow: 0 2px 8px rgba(0,0,0,.15);
+          color: #000;
+          white-space: nowrap;            /* single-line => auto-width */
+          max-width: none;                /* no hard cap */
         }
       `;
       document.head.appendChild(css);
     }
-  
+
     this._hcReady = (async () => {
       await loadScriptOnce("https://code.highcharts.com/highcharts.js");
       await loadScriptOnce("https://code.highcharts.com/modules/heatmap.js");
@@ -400,17 +409,16 @@ looker.plugins.visualizations.add({
 
       tooltip: {
         useHTML: !!config.use_second_measure_tooltip,
-        className: 'hm-tooltip',            // class on the outer tooltip container
-        outside: true,                      // optional; keeps it above other elements
-        style: { color: '#000' },           // text color (applies to the wrapper)
+        className: 'hm-tooltip',      // used by the CSS above
+        outside: true,                 // keeps it above other elements (optional)
+        style: { color: '#000', whiteSpace: 'nowrap' }, // ensure auto-width
         formatter: function () {
           const wrap = (html) => `<span class="hm-tooltip-inner">${html}</span>`;
-      
+
           if (config.use_second_measure_tooltip && this.point?.custom?.html) {
-            // Your custom HTML may start with <div>/<table>/..., but it’s wrapped now
-            return wrap(this.point.custom.html);
+            return wrap(this.point.custom.html); // keep your custom HTML, we just wrap it
           }
-      
+
           const xLabel = this.series.xAxis.categories[this.point.x];
           const yLabel = this.series.yAxis.categories[this.point.y];
           const v = this.point.value;
