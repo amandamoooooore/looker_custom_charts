@@ -22,7 +22,7 @@ looker.plugins.visualizations.add({
     value_measure: { label: "Value Measure", type: "string", display: "select", values: [], section: "Data" },
 
     // --- X AXIS ---
-    x_axis_title:  { label: "Title", type: "string", default: "", section: "X Axis" },
+    x_axis_title:  { label: "X Axis Title", type: "string", default: "", section: "X Axis" },
     reverse_x_axis:{ label: "Reverse", type: "boolean", default: false, section: "X Axis" },
     x_label_step:  { label: "Label Step", type: "number", default: 1, section: "X Axis" },
     force_x_range: { label: "Use Custom Min/Max/Step", type: "boolean", default: true, section: "X Axis" },
@@ -30,11 +30,36 @@ looker.plugins.visualizations.add({
     x_max:         { label: "Max (numeric)", type: "number",  default: 30, section: "X Axis" },
     x_step:        { label: "Step",          type: "number",  default: 1,  section: "X Axis" },
 
+    // --- Y AXIS ---
+    y_axis_title:  { label: "Y Axis Title (override)", type: "string", default: "", section: "Y Axis" },
+
     // --- APPEARANCE/BEHAVIOUR ---
     area_opacity:  { label: "Area Opacity (0–1)", type: "number", default: 0.6, section: "Appearance" },
     show_markers:  { label: "Show Point Markers", type: "boolean", default: false, section: "Appearance" },
     use_tooltip_field: { label: "Use 2nd measure for HTML tooltip", type: "boolean", default: false, section: "Behaviour" },
-    no_data_message:   { label: "No-data Message", type: "string", default: "No data to display", section: "Behaviour" }
+    no_data_message:   { label: "No-data Message", type: "string", default: "No data to display", section: "Behaviour" },
+
+    // --- COLOURS ---
+    series_color_map: {
+      label: "Series → HEX (one per line: Name = #HEX)",
+      type: "string",
+      default: "",
+      section: "Colours"
+    },
+
+    // --- LEGEND ---
+    legend_sort_alpha: {
+      label: "Sort Legend A→Z",
+      type: "boolean",
+      default: false,
+      section: "Legend"
+    },
+    legend_deselected_values: {
+      label: "Auto-deselect Series (comma/newline)",
+      type: "string",
+      default: "",
+      section: "Legend"
+    }
   },
 
   create(element) {
@@ -85,6 +110,33 @@ looker.plugins.visualizations.add({
        </div>`;
   },
 
+  _parseColorMap(str) {
+    const map = new Map();
+    if (!str) return map;
+    const lines = String(str).split(/\n|,/); // allow newline or comma
+    lines.forEach(line => {
+      const m = line.split(/=|:/);
+      if (m.length >= 2) {
+        const key = m[0].trim();
+        const val = m.slice(1).join(":").trim();
+        if (key && /^#?[0-9a-f]{6}$/i.test(val.replace('#',''))) {
+          map.set(key, val.startsWith('#') ? val : ('#' + val));
+        }
+      }
+    });
+    return map;
+  },
+
+  _parseListToSet(str) {
+    const set = new Set();
+    if (!str) return set;
+    String(str).split(/\n|,/).forEach(v => {
+      const t = v.trim();
+      if (t) set.add(t);
+    });
+    return set;
+  },
+
   async update(data, element, config, queryResponse) {
     await this._hcReady;
     const fields = queryResponse.fields || {};
@@ -94,9 +146,9 @@ looker.plugins.visualizations.add({
     // defaults
     const dimChoices  = dims.map(d => d.name);
     const measChoices = meas.map(m => m.name);
-    if (!config.x_dim && dimChoices[0])                      config.x_dim = dimChoices[0];
+    if (!config.x_dim && dimChoices[0])                        config.x_dim = dimChoices[0];
     if (!config.series_dim && (dimChoices[1] || dimChoices[0])) config.series_dim = dimChoices[1] || dimChoices[0];
-    if (!config.value_measure && measChoices[0])             config.value_measure = measChoices[0];
+    if (!config.value_measure && measChoices[0])               config.value_measure = measChoices[0];
 
     this.options.x_dim.values         = dimChoices;
     this.options.series_dim.values    = dimChoices;
@@ -168,8 +220,12 @@ looker.plugins.visualizations.add({
       return;
     }
 
+    // parse colour map and deselection list
+    const colorMap = this._parseColorMap(config.series_color_map);
+    const deselectSet = this._parseListToSet(config.legend_deselected_values);
+
     // build series over full category range (fill gaps with 0)
-    const series = [];
+    let series = [];
     for (const [name, points] of seriesMap.entries()) {
       const byX = new Map(points.map(p => [String(p.xLabel), p]));
       const dataArr = categories.map(cat => {
@@ -178,7 +234,17 @@ looker.plugins.visualizations.add({
           ? { y: p.y, custom: { html: p.html, raw: p.raw } }
           : { y: 0 };
       });
-      series.push({ name, data: dataArr });
+      series.push({
+        name,
+        data: dataArr,
+        color: colorMap.get(name),
+        visible: !deselectSet.has(name)
+      });
+    }
+
+    // sort legend (and stacking order) alphabetically if required
+    if (config.legend_sort_alpha) {
+      series.sort((a, b) => a.name.localeCompare(b.name));
     }
 
     const viz = this;
@@ -204,10 +270,13 @@ looker.plugins.visualizations.add({
 
       yAxis: {
         min: 0,
-        title: { text: vF.label_short || vF.label }
+        title: { text: (config.y_axis_title && config.y_axis_title.trim()) ? config.y_axis_title.trim() : (vF.label_short || vF.label) }
       },
 
-      legend: { align: "center", verticalAlign: "bottom" },
+      legend: {
+        align: "center",
+        verticalAlign: "bottom"
+      },
 
       plotOptions: {
         area: {
