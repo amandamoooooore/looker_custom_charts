@@ -89,6 +89,26 @@ looker.plugins.visualizations.add({
 
   create(element) {
     element.innerHTML = "<div id='hm_chart' style='width:100%;height:100%;'></div>";
+  
+    // Inject CSS for HTML tooltips (opaque background)
+    if (!document.getElementById("hm_heatmap_css")) {
+      const css = document.createElement("style");
+      css.id = "hm_heatmap_css";
+      css.textContent = `
+        .highcharts-tooltip.hm-tooltip .hm-tooltip-inner{
+          display:block;
+          background:#ffffff;           /* opaque */
+          border:1px solid #9aa0a6;
+          border-radius:6px;
+          padding:8px 10px;
+          box-shadow:0 2px 8px rgba(0,0,0,.15);
+          color:#000;
+          white-space:normal;
+        }
+      `;
+      document.head.appendChild(css);
+    }
+  
     this._hcReady = (async () => {
       await loadScriptOnce("https://code.highcharts.com/highcharts.js");
       await loadScriptOnce("https://code.highcharts.com/modules/heatmap.js");
@@ -380,19 +400,21 @@ looker.plugins.visualizations.add({
 
       tooltip: {
         useHTML: !!config.use_second_measure_tooltip,
-        backgroundColor: '#fff',        // <— opaque background
-        borderColor: '#9aa0a6',
-        borderWidth: 1,
-        borderRadius: 6,
-        shadow: true,
+        className: 'hm-tooltip',            // class on the outer tooltip container
+        outside: true,                      // optional; keeps it above other elements
+        style: { color: '#000' },           // text color (applies to the wrapper)
         formatter: function () {
-          if (config.use_second_measure_tooltip && this.point && this.point.custom && this.point.custom.html) {
-            return this.point.custom.html;
+          const wrap = (html) => `<span class="hm-tooltip-inner">${html}</span>`;
+      
+          if (config.use_second_measure_tooltip && this.point?.custom?.html) {
+            // Your custom HTML may start with <div>/<table>/..., but it’s wrapped now
+            return wrap(this.point.custom.html);
           }
+      
           const xLabel = this.series.xAxis.categories[this.point.x];
           const yLabel = this.series.yAxis.categories[this.point.y];
           const v = this.point.value;
-          return `<b>${yLabel}</b><br/>${xLabel}: <b>${(v==null?'–':Highcharts.numberFormat(v, dp))}</b>`;
+          return wrap(`<b>${yLabel}</b><br/>${xLabel}: <b>${(v==null?'–':Highcharts.numberFormat(v, dp))}</b>`);
         }
       },
 
