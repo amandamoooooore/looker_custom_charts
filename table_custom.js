@@ -3,6 +3,7 @@
 looker.plugins.visualizations.add({
   id: 'hc_grouped_grid',
   label: 'Highcharts Grid — Grouped Header',
+  supports: { crossfilter: true },
 
   options: {
     // Data/columns
