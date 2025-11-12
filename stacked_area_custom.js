@@ -305,8 +305,8 @@ looker.plugins.visualizations.add({
         className: "sa-tooltip",
         outside: true,
         backgroundColor: "#fff", // keep white background
-        borderColor: "transparent", // remove inner border
-        borderWidth: 0,
+        borderColor: "#ccc",  // remove inner border
+        borderWidth: 1,
         borderRadius: 6,
         shadow: false, // remove drop shadow
         shape: "callout", // keep the pointer
