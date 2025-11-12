@@ -6,7 +6,7 @@ looker.plugins.visualizations.add({
   options: {
     // Columns JSON: [{ field, key, label, group?, align?, bold?, heat?, header_bg?, header_color? }, ...]
     columns_json: { type: 'string', label: 'Columns JSON', display: 'text', default: '' },
-    // Group Colors: { "Group Name": "#hex" }
+    // Group Colors JSON: { "Group Name": "#hex" }
     group_colors_json: { type: 'string', label: 'Group Colors JSON (optional)', display: 'text', default: '' },
 
     // Layout
@@ -18,14 +18,14 @@ looker.plugins.visualizations.add({
     default_sort_column: { type: 'string', label: 'Default sort column (key or label)', display: 'text', default: '' },
     default_sort_direction: { type: 'string', label: 'Default sort direction (asc/desc)', display: 'text', default: 'asc' },
 
-    // NEW: Click-to-filter
+    // Click-to-filter
     enable_click_filter: { type: 'boolean', label: 'Enable click-to-filter', default: true },
     click_filter_column: { type: 'string', label: 'Click filter column (key or label)', display: 'text', default: '' },
-    click_filter_field: { type: 'string', label: 'Click filter field (optional Looker field)', display: 'text', default: '' }
+    click_filter_field:   { type: 'string', label: 'Click filter field (optional Looker field)', display: 'text', default: '' }
   },
 
   create (element) {
-    // Root wrapper
+    // Root
     const root = document.createElement('div');
     root.style.position = 'relative';
     root.style.fontFamily = 'Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
@@ -37,25 +37,26 @@ looker.plugins.visualizations.add({
     element.appendChild(root);
     this.root = root;
 
-    // Group header (always fixed)
+    // Fixed header wrappers
     const groupHeaderWrap = document.createElement('div');
     groupHeaderWrap.style.position = 'sticky';
     groupHeaderWrap.style.top = '0';
     groupHeaderWrap.style.zIndex = '10';
     groupHeaderWrap.style.background = '#fff';
+    groupHeaderWrap.style.overflow = 'hidden';
     this.root.appendChild(groupHeaderWrap);
     this.groupHeaderWrap = groupHeaderWrap;
 
-    // Column header (always fixed, beneath group row)
     const colHeaderWrap = document.createElement('div');
     colHeaderWrap.style.position = 'sticky';
     colHeaderWrap.style.top = '44px';
     colHeaderWrap.style.zIndex = '9';
     colHeaderWrap.style.background = '#fff';
+    colHeaderWrap.style.overflow = 'hidden';
     this.root.appendChild(colHeaderWrap);
     this.colHeaderWrap = colHeaderWrap;
 
-    // Scrollable data area
+    // Scrollable body
     const scroller = document.createElement('div');
     scroller.style.overflow = 'auto';
     scroller.style.position = 'relative';
@@ -65,6 +66,10 @@ looker.plugins.visualizations.add({
     this.scroller = scroller;
 
     this.sortState = { key: null, dir: 'asc' };
+
+    // Recalc widths on resize
+    this._resizeObserver = new ResizeObserver(() => this._syncWidths && this._syncWidths());
+    this._resizeObserver.observe(scroller);
   },
 
   updateAsync (data, element, config, queryResponse, details, done) {
@@ -73,7 +78,6 @@ looker.plugins.visualizations.add({
     this.colHeaderWrap.innerHTML = '';
     this.scroller.innerHTML = '';
 
-    // Parse options
     const parseJSON = (txt, fb) => { try { return JSON.parse(txt || ''); } catch { return fb; } };
     const cols = parseJSON(config.columns_json, []);
     const groupColors = parseJSON(config.group_colors_json, {});
@@ -147,7 +151,7 @@ looker.plugins.visualizations.add({
       return `rgba(63,131,248,${0.12 + 0.28*t})`;
     };
 
-    // Header color resolver (supports header_bg: "group")
+    // Header color resolver
     const resolveLeafHeaderColors = (col, groupColors) => {
       let bg = col.header_bg;
       let color = col.header_color;
@@ -160,7 +164,15 @@ looker.plugins.visualizations.add({
       return { bg, color };
     };
 
-    // Simple factories
+    // Factories
+    const makeTable = () => {
+      const t = document.createElement('table');
+      t.style.width = '100%';
+      t.style.borderCollapse = 'separate';
+      t.style.borderSpacing = '0';
+      t.style.tableLayout = 'fixed';
+      return t;
+    };
     const makeTh = (txt, opts = {}) => {
       const th = document.createElement('th');
       th.textContent = txt;
@@ -174,22 +186,27 @@ looker.plugins.visualizations.add({
       th.style.whiteSpace = 'nowrap';
       th.style.verticalAlign = 'middle';
       th.style.height = '44px';
+      th.style.boxSizing = 'border-box';
       if (opts.isGroup && config.center_group_titles) th.style.textAlign = 'center';
       return th;
     };
-    const makeTable = () => {
-      const t = document.createElement('table');
-      t.style.width = '100%';
-      t.style.borderCollapse = 'collapse';
-      return t;
+    const makeTd = () => {
+      const td = document.createElement('td');
+      td.style.padding = '10px';
+      td.style.borderBottom = '1px solid #eef1f6';
+      td.style.whiteSpace = 'nowrap';
+      td.style.overflow = 'hidden';
+      td.style.textOverflow = 'ellipsis';
+      td.style.boxSizing = 'border-box';
+      return td;
     };
 
-    // ----- Build header: group row + leaf row (in separate fixed tables)
+    // ----- Build header tables
     const groupTable = makeTable();
-    const groupRow = document.createElement('tr');
+    const groupRow  = document.createElement('tr');
 
-    const colTable = makeTable();
-    const colRow = document.createElement('tr');
+    const colTable  = makeTable();
+    const colRow    = document.createElement('tr');
     const leafThByKey = {};
 
     let i = 0;
@@ -204,6 +221,7 @@ looker.plugins.visualizations.add({
         const { bg, color } = resolveLeafHeaderColors(first, groupColors);
         const th = makeTh(first.label, { bg, color });
         th.dataset.key = first.key;
+        th.style.textAlign = first.align || 'left';
         colRow.appendChild(th);
         leafThByKey[first.key] = th;
 
@@ -220,6 +238,7 @@ looker.plugins.visualizations.add({
         const { bg, color } = resolveLeafHeaderColors(col, groupColors);
         const th = makeTh(col.label, { bg, color });
         th.dataset.key = col.key;
+        th.style.textAlign = col.align || 'left';
         colRow.appendChild(th);
         leafThByKey[col.key] = th;
       }
@@ -236,7 +255,6 @@ looker.plugins.visualizations.add({
 
     const fmt = v => (v == null ? '' : (v.toLocaleString?.() ?? String(v)));
 
-    // Helper: find column key by label or key
     const findKeyByLabelOrKey = (val) => {
       if (!val) return null;
       const low = String(val).toLowerCase();
@@ -246,13 +264,8 @@ looker.plugins.visualizations.add({
       return byLabel ? byLabel.key : null;
     };
 
-    // Which column is clickable?
-    const clickKey = config.enable_click_filter
-      ? (findKeyByLabelOrKey(config.click_filter_column) || null)
-      : null;
-
-    // Which Looker field to filter?
-    // If not provided, we’ll use the field behind that column.
+    // Click-to-filter column and field
+    const clickKey = config.enable_click_filter ? (findKeyByLabelOrKey(config.click_filter_column) || null) : null;
     const clickFieldFallback = (() => {
       if (!clickKey) return null;
       const col = resolvedCols.find(c => c.key === clickKey);
@@ -260,45 +273,33 @@ looker.plugins.visualizations.add({
     })();
     const clickFieldName = (config.click_filter_field || clickFieldFallback || '').trim();
 
-    // Render body rows (with optional heat + click-to-filter)
     const renderBody = (rowsIn) => {
       tbody.innerHTML = '';
       rowsIn.forEach(r => {
         const tr = document.createElement('tr');
         resolvedCols.forEach(c => {
-          const td = document.createElement('td');
+          const td = makeTd();
           const v = r[c.key];
-
           td.textContent = fmt(v);
-          td.style.padding = '10px';
-          td.style.borderBottom = '1px solid #eef1f6';
           td.style.textAlign = c.align || 'left';
           td.style.fontWeight = c.bold ? '700' : '400';
-          td.style.whiteSpace = 'nowrap';
-          td.style.overflow = 'hidden';
-          td.style.textOverflow = 'ellipsis';
           if (c.heat) td.style.background = shade(c.key, v);
 
-          // Click-to-filter behavior
           if (clickKey && clickFieldName && c.key === clickKey && v != null && v !== '') {
             td.style.cursor = 'pointer';
             td.style.textDecoration = 'underline';
-            td.title = `Filter dashboard by ${clickFieldName} = ${v}`;
+            td.title = `Filter: ${clickFieldName} = ${v}`;
             td.addEventListener('click', () => {
-              this.trigger('dashboard:filter', {
-                field: clickFieldName,
-                value: String(v)
-              });
+              this.trigger('dashboard:filter', { field: clickFieldName, value: String(v) });
             });
           }
-
           tr.appendChild(td);
         });
         tbody.appendChild(tr);
       });
     };
 
-    // ----- Sorting
+    // Sorting
     const sortRows = (arr, key, dir) => {
       const copy = arr.slice();
       copy.sort((a, b) => {
@@ -311,38 +312,34 @@ looker.plugins.visualizations.add({
       return copy;
     };
 
-    // Default sort (only if none active yet)
     if (!this.sortState.key) {
       const defKey = findKeyByLabelOrKey(config.default_sort_column);
       if (defKey) this.sortState = { key: defKey, dir: (String(config.default_sort_direction).toLowerCase() === 'desc' ? 'desc' : 'asc') };
     }
 
-    // Sort header UI
     const clearIndicators = () => {
-      Object.values(leafThByKey).forEach(th => {
-        th.style.cursor = config.enable_sorting ? 'pointer' : 'default';
-        th.title = config.enable_sorting ? 'Click to sort' : '';
-        th.innerText = th.innerText.replace(/\s*[▲▼]$/, '');
-      });
+      Array.from(colRow.children).forEach(th => th.innerText = th.innerText.replace(/\s*[▲▼]$/, ''));
     };
     const applyIndicator = () => {
       if (!this.sortState.key) return;
-      const th = leafThByKey[this.sortState.key];
+      const th = Array.from(colRow.children).find(el => el.dataset.key === this.sortState.key);
       if (th) th.innerText = `${th.innerText.replace(/\s*[▲▼]$/, '')} ${this.sortState.dir === 'asc' ? '▲' : '▼'}`;
     };
-
     if (config.enable_sorting) {
-      Object.entries(leafThByKey).forEach(([key, th]) => {
+      Array.from(colRow.children).forEach(th => {
+        th.style.cursor = 'pointer';
         th.addEventListener('click', () => {
+          const key = th.dataset.key;
+          if (!key) return;
           if (this.sortState.key === key) this.sortState.dir = this.sortState.dir === 'asc' ? 'desc' : 'asc';
           else this.sortState = { key, dir: 'asc' };
           clearIndicators(); applyIndicator();
           renderBody(sortRows(rows, this.sortState.key, this.sortState.dir));
+          this._syncWidths(); // re-sync widths after sort (row content may change)
         });
       });
     }
 
-    // Initial render
     clearIndicators(); if (config.enable_sorting && this.sortState.key) applyIndicator();
     const initialRows = this.sortState.key ? sortRows(rows, this.sortState.key, this.sortState.dir) : rows;
     renderBody(initialRows);
@@ -350,7 +347,59 @@ looker.plugins.visualizations.add({
     bodyTable.appendChild(tbody);
     this.scroller.appendChild(bodyTable);
 
-    // Sync horizontal scroll of headers with body
+    // ---------- Column width sync (measure body, set header widths & group spans)
+    this._syncWidths = () => {
+      // Ensure at least one row exists to measure
+      const firstRow = tbody.rows[0];
+      const colCount = resolvedCols.length;
+
+      // Measure widths (fallback to equal widths if no rows)
+      let widths = new Array(colCount).fill(0);
+      if (firstRow) {
+        for (let c = 0; c < colCount; c++) {
+          const cell = firstRow.cells[c];
+          if (!cell) continue;
+          // Include cell width; if you want to include more rows, take max over a few
+          widths[c] = Math.max(80, Math.ceil(cell.getBoundingClientRect().width)); // min 80px
+        }
+      } else {
+        const eq = Math.max(100, Math.floor(this.scroller.clientWidth / colCount));
+        widths = widths.map(() => eq);
+      }
+
+      // Set explicit width on each header TH (leaf row)
+      const leafTHs = Array.from(colRow.children);
+      leafTHs.forEach((th, idx) => {
+        th.style.width = widths[idx] + 'px';
+        th.style.minWidth = widths[idx] + 'px';
+        th.style.maxWidth = widths[idx] + 'px';
+      });
+
+      // Size each group TH to sum of its children
+      let cursor = 0;
+      let gIdx = 0;
+      const groupTHs = Array.from(groupRow.children);
+      groupTHs.forEach(thg => {
+        const span = Number(thg.colSpan || 1);
+        const total = widths.slice(cursor, cursor + span).reduce((a, b) => a + b, 0);
+        thg.style.width = total + 'px';
+        thg.style.minWidth = total + 'px';
+        thg.style.maxWidth = total + 'px';
+        cursor += span;
+        gIdx++;
+      });
+
+      // Match header table widths to body scroll width
+      const totalW = widths.reduce((a,b)=>a+b,0);
+      groupTable.style.width = totalW + 'px';
+      colTable.style.width   = totalW + 'px';
+      bodyTable.style.width  = totalW + 'px';
+    };
+
+    // Initial sync (after the DOM paints)
+    requestAnimationFrame(() => this._syncWidths());
+
+    // Sync header scroll with body
     this.scroller.onscroll = () => {
       const left = this.scroller.scrollLeft;
       this.groupHeaderWrap.scrollLeft = left;
