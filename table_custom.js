@@ -1,14 +1,14 @@
 // -----------------------------------------------------------------------------
-// Grid-like Heatmap (Debug + Explore-safe filtering)
-// - Loads Highcharts core (if needed) + modules in correct order: coloraxis → heatmap
-// - Clamps x/y axes to 0..count-1 so cells are always in view
-// - Shows a yellow banner for CSP/missing-module/runtime errors
-// - Grouped headers, centered leaf labels, optional sorting
-// - Click-to-filter: emitted from viz scope so Explore picks it up
+// Grid-like Heatmap (Explore-safe filtering)
+// - Loader mirrors your working heatmap: highcharts.js → modules/heatmap.js → accessibility.js
+// - Axes clamped so cells are always visible
+// - Grouped headers (2 sticky rows), centered labels, optional sorting
+// - Click-to-filter emitted from viz scope (works in Explore & Dashboards)
+// - Debug banner surfaces CSP/missing-module/runtime errors
 // -----------------------------------------------------------------------------
 looker.plugins.visualizations.add({
-  id: 'grid_like_heatmap_debug',
-  label: 'Grid-like Heatmap (Debug)',
+  id: 'grid_like_heatmap',
+  label: 'Grid-like Heatmap (Grouped Headers)',
   supports: { crossfilter: true },
 
   options: {
@@ -28,7 +28,7 @@ looker.plugins.visualizations.add({
     click_filter_field:  { type: 'string', label: 'Click filter field (fully qualified Looker field)', default: '' },
 
     // debug
-    load_highcharts_from_cdn: { type: 'boolean', label: 'Load Highcharts from CDN', default: true },
+    load_from_cdn: { type: 'boolean', label: 'Load Highcharts from CDN', default: true },
     show_debug_banner: { type: 'boolean', label: 'Show debug banner', default: true }
   },
 
@@ -131,15 +131,16 @@ looker.plugins.visualizations.add({
     try {
       hideBanner();
 
-      // --- ensure Highcharts (correct module order: coloraxis → heatmap) ---
+      // --- loader matches your working viz: core → heatmap → accessibility ---
       if (!this._ensureHC) {
         this._ensureHC = (async () => {
-          if (config.load_highcharts_from_cdn) {
-            if (typeof Highcharts === 'undefined') {
+          if (config.load_from_cdn) {
+            if (typeof Highcharts === 'undefined' || !Highcharts.chart) {
               await this._loadScriptOnce('https://code.highcharts.com/highcharts.js');
             }
-            await this._loadScriptOnce('https://code.highcharts.com/modules/coloraxis.js');
-            await this._loadScriptOnce('https://code.highcharts.com/modules/heatmap.js');
+            if (!Highcharts.seriesTypes || !Highcharts.seriesTypes.heatmap) {
+              await this._loadScriptOnce('https://code.highcharts.com/modules/heatmap.js');
+            }
             await this._loadScriptOnce('https://code.highcharts.com/modules/accessibility.js');
           }
         })();
@@ -147,11 +148,11 @@ looker.plugins.visualizations.add({
       await this._ensureHC;
 
       if (typeof Highcharts === 'undefined' || !Highcharts.chart) {
-        showBanner('Highcharts failed to load. Allow code.highcharts.com or preload Highcharts + coloraxis + heatmap.');
+        showBanner('Highcharts failed to load. Allow code.highcharts.com or preload Highcharts + modules.');
         done(); return;
       }
       if (!Highcharts.seriesTypes || !Highcharts.seriesTypes.heatmap) {
-        showBanner('Heatmap module missing. Ensure coloraxis.js THEN heatmap.js are loaded.');
+        showBanner('Heatmap module missing. Check CSP or pin the same module URL/version as your other heatmap.');
         done(); return;
       }
 
@@ -308,7 +309,6 @@ looker.plugins.visualizations.add({
           i++; continue;
         }
         let j=i+1; while (j<resolvedCols.length && resolvedCols[j].group===first.group) j++;
-        const span = j - i;
         const gDiv = makeDiv(first.group, {
           bg: groupColors[first.group] || '#d9e3f8',
           color: '#0b1020',
@@ -393,7 +393,7 @@ looker.plugins.visualizations.add({
       const chartH = Math.max(200, maxH - headerH);
       this.chartDiv.style.height = `${chartH}px`;
 
-      // axes (CLAMPED so grid is always visible)
+      // axes (CLAMPED to 0..count-1)
       const xCats = resolvedCols.map(c => c.label);
       const yCats = rows.map((_, i) => String(i+1));
 
@@ -413,7 +413,6 @@ looker.plugins.visualizations.add({
         title: { text: null }, credits: { enabled: false }, exporting: { enabled: false }, legend: { enabled: false },
         tooltip: { enabled: false },
 
-        // 👇 clamp axes to 0..count-1
         xAxis: { categories: xCats, visible: false, min: 0, max: Math.max(0, xCount - 1) },
         yAxis: { categories: yCats, visible: false, min: 0, max: Math.max(0, yCount - 1) },
 
@@ -435,7 +434,7 @@ looker.plugins.visualizations.add({
                   const fmt = this.point?.custom?.fmt ?? (raw == null ? '' : String(raw));
                   if (raw == null || raw === '') return;
 
-                  // Explore-friendly (legacy array-of-objects) + dashboard events
+                  // Explore-friendly event + dashboard events
                   viz.trigger('filter', [{ field: clickFieldName, value: String(raw), formatted: String(fmt) }]);
                   viz.trigger('dashboard:filter', { field: clickFieldName, value: String(raw) });
                   viz.trigger('dashboard:run');
