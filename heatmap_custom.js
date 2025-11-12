@@ -95,7 +95,7 @@ looker.plugins.visualizations.add({
       const css = document.createElement("style");
       css.id = "hm_heatmap_css";
       css.textContent = `
-        .highcharts-tooltip.sa-tooltip > span {
+        .highcharts-tooltip.hm-tooltip > span {
           background: #fff !important; /* white background */
           border: none !important;     /* remove inner border */
           box-shadow: none !important; /* remove shadow */
