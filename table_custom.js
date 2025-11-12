@@ -15,10 +15,12 @@ looker.plugins.visualizations.add({
     table_height: { type: 'number', label: 'Max table height (px, 0 = auto)', default: 0 },
     center_group_titles: { type: 'boolean', label: 'Center group titles', default: true },
 
-    // NEW: enable/disable sorting by clicking leaf headers
+    // Sorting
     enable_sorting: { type: 'boolean', label: 'Enable sorting (click headers)', default: true },
+    default_sort_column: { type: 'string', label: 'Default sort column (key or label)', display: 'text', default: '' },
+    default_sort_direction: { type: 'string', label: 'Default sort direction (asc/desc)', display: 'text', default: 'asc' },
 
-    // Debug helper to list exact field keys from the query
+    // Debug helper
     debug_fields: { type: 'boolean', label: 'Show field debug header', default: false }
   },
 
@@ -30,8 +32,8 @@ looker.plugins.visualizations.add({
     element.appendChild(wrap);
     this.wrap = wrap;
 
-    // Sort state
-    this.sortState = { key: null, dir: 'asc' }; // dir: 'asc' | 'desc'
+    // internal sort state
+    this.sortState = { key: null, dir: 'asc' };
   },
 
   updateAsync (data, element, config, queryResponse, details, done) {
@@ -107,7 +109,7 @@ looker.plugins.visualizations.add({
       return obj;
     });
 
-    // ---------- Precompute heatmap scales BEFORE sorting (stable scales)
+    // ---------- Heatmap scales (precomputed for stability during sorting)
     const heatCols = resolvedCols.filter(c => c.heat);
     const mins = {}, maxs = {};
     heatCols.forEach(c => {
@@ -136,6 +138,10 @@ looker.plugins.visualizations.add({
     table.style.borderSpacing = '0';
     table.style.tableLayout = 'fixed';
 
+    // Header sizing (used for stacked sticky)
+    const groupRowH = 44;   // px
+    const leafRowH  = 44;   // px
+
     // ---------- Header cell factory
     const makeTh = (txt, opts = {}) => {
       const th = document.createElement('th');
@@ -148,34 +154,34 @@ looker.plugins.visualizations.add({
       th.style.background = opts.bg ?? '#0b2557';   // navy by default
       th.style.color = opts.color ?? (opts.bg ? '#0b1020' : '#ffffff');
       th.style.position = 'sticky';
-      th.style.top = '0';
       th.style.verticalAlign = 'middle';
-      th.style.height = '44px';
+      th.style.height = (opts.isGroup ? groupRowH : leafRowH) + 'px';
       th.style.lineHeight = '1.3em';
       if (opts.isGroup && config.center_group_titles) th.style.textAlign = 'center';
       return th;
     };
 
-    // ---------- Build header (two rows; ALL labels in row 2)
+    // ---------- Build header (two rows; ALL labels in row 2; stacked sticky)
     const thead = document.createElement('thead');
-    const r1 = document.createElement('tr'); // group row
-    const r2 = document.createElement('tr'); // leaf headers row
-
-    // keep references to leaf THs for sorting icons/handlers
-    const leafThByKey = {};
+    const r1 = document.createElement('tr'); // group row (sticky top: 0)
+    const r2 = document.createElement('tr'); // leaf row (sticky top: groupRowH)
 
     let i = 0;
+    const leafThByKey = {};
+
     while (i < resolvedCols.length) {
       const g = resolvedCols[i].group;
 
       if (!g) {
-        // Spacer in top row to line up with grouped sections
-        const spacer = makeTh('', { align: 'left' });
+        // Spacer in top row to align with grouped sections
+        const spacer = makeTh('', { align: 'left', isGroup: true });
         spacer.style.borderBottom = 'none';
+        spacer.style.top = '0px';
         r1.appendChild(spacer);
 
-        // Actual leaf header goes to row 2
+        // Actual leaf header
         const th = makeTh(resolvedCols[i].label, { align: 'left' });
+        th.style.top = groupRowH + 'px';
         th.dataset.key = resolvedCols[i].key;
         r2.appendChild(th);
         leafThByKey[resolvedCols[i].key] = th;
@@ -190,10 +196,12 @@ looker.plugins.visualizations.add({
 
       const thg = makeTh(g, { bg: groupColors[g] || '#d9e3f8', color: '#0b1020', isGroup: true });
       thg.colSpan = j - i;
+      thg.style.top = '0px';
       r1.appendChild(thg);
 
       for (let k = i; k < j; k++) {
         const th = makeTh(resolvedCols[k].label, { align: 'left' });
+        th.style.top = groupRowH + 'px';
         th.dataset.key = resolvedCols[k].key;
         r2.appendChild(th);
         leafThByKey[resolvedCols[k].key] = th;
@@ -204,13 +212,46 @@ looker.plugins.visualizations.add({
     thead.appendChild(r1);
     thead.appendChild(r2);
 
+    // Subtle shadow under the frozen header
+    thead.style.boxShadow = '0 2px 0 rgba(0,0,0,0.04)';
+
     // ---------- Body
     const tbody = document.createElement('tbody');
-
-    // Rendering helpers
     const fmt = v => (v == null ? '' : (v.toLocaleString?.() ?? String(v)));
 
-    function renderBody(sortedRows) {
+    // ---------- Sorting utilities
+    function parseForSort(v) {
+      if (v == null) return null;
+      if (typeof v === 'number') return v;
+      if (typeof v === 'boolean') return v ? 1 : 0;
+      // Try numeric parse (strip currency/commas/%/spaces)
+      const s = String(v).trim().replace(/[, ]+/g, '').replace(/[%£$€]/g, '');
+      const num = Number(s);
+      if (!Number.isNaN(num)) return num;
+      return String(v).toLowerCase();
+    }
+
+    const sortRows = (rowsInput, key, dir) => {
+      const copy = rowsInput.slice();
+      copy.sort((a, b) => {
+        const va = parseForSort(a[key]);
+        const vb = parseForSort(b[key]);
+        const na = (va === null || va === undefined || va === '');
+        const nb = (vb === null || vb === undefined || vb === '');
+        if (na && nb) return 0;
+        if (na) return 1;
+        if (nb) return -1;
+        if (typeof va === 'number' && typeof vb === 'number') {
+          return dir === 'asc' ? va - vb : vb - va;
+        }
+        return dir === 'asc'
+          ? String(va).localeCompare(String(vb))
+          : String(vb).localeCompare(String(va));
+      });
+      return copy;
+    };
+
+    const renderBody = (sortedRows) => {
       tbody.innerHTML = '';
       if (unresolved.length > 0) {
         const trWarn = document.createElement('tr');
@@ -223,7 +264,6 @@ looker.plugins.visualizations.add({
         trWarn.appendChild(tdWarn);
         tbody.appendChild(trWarn);
       }
-
       sortedRows.forEach(r => {
         const tr = document.createElement('tr');
         resolvedCols.forEach(c => {
@@ -242,48 +282,33 @@ looker.plugins.visualizations.add({
         });
         tbody.appendChild(tr);
       });
-    }
-
-    // ---------- Sorting utilities
-    function parseForSort(v) {
-      if (v == null) return null;
-      if (typeof v === 'number') return v;
-      if (typeof v === 'boolean') return v ? 1 : 0;
-      // Try numeric parse (strip currency/commas/%)
-      const s = String(v).trim().replace(/[, ]+/g, '').replace(/[%£$€]/g, '');
-      const num = Number(s);
-      if (!Number.isNaN(num)) return num;
-      return String(v).toLowerCase();
-    }
-
-    const sortRows = (rowsInput, key, dir) => {
-      const copy = rowsInput.slice();
-      copy.sort((a, b) => {
-        const va = parseForSort(a[key]);
-        const vb = parseForSort(b[key]);
-        // nulls last
-        const na = (va === null || va === undefined || va === '');
-        const nb = (vb === null || vb === undefined || vb === '');
-        if (na && nb) return 0;
-        if (na) return 1;
-        if (nb) return -1;
-        // compare numbers or strings
-        if (typeof va === 'number' && typeof vb === 'number') {
-          return dir === 'asc' ? va - vb : vb - va;
-        }
-        return dir === 'asc'
-          ? String(va).localeCompare(String(vb))
-          : String(vb).localeCompare(String(va));
-      });
-      return copy;
     };
 
-    // Render header sort indicators & bind handlers
+    // ---------- Default sort (applied once on initial render or when options change)
+    const findKeyByLabelOrKey = (val) => {
+      if (!val) return null;
+      const lower = String(val).toLowerCase();
+      const byKey = resolvedCols.find(c => String(c.key).toLowerCase() === lower);
+      if (byKey) return byKey.key;
+      const byLabel = resolvedCols.find(c => String(c.label).toLowerCase() === lower);
+      return byLabel ? byLabel.key : null;
+    };
+
+    // If no active sort yet, try to set it from config defaults
+    if (!this.sortState.key) {
+      const defKey = findKeyByLabelOrKey(config.default_sort_column);
+      if (defKey) {
+        const dir = (String(config.default_sort_direction || 'asc').toLowerCase() === 'desc') ? 'desc' : 'asc';
+        this.sortState = { key: defKey, dir };
+      }
+    }
+
+    // ---------- Bind click-to-sort if enabled
     const clearIndicators = () => {
       Object.values(leafThByKey).forEach(th => {
         th.style.cursor = config.enable_sorting ? 'pointer' : 'default';
         th.title = config.enable_sorting ? 'Click to sort' : '';
-        th.innerText = th.innerText.replace(/\s*[▲▼]$/, ''); // remove trailing indicator if any
+        th.innerText = th.innerText.replace(/\s*[▲▼]$/, '');
       });
     };
 
@@ -313,12 +338,10 @@ looker.plugins.visualizations.add({
       });
     }
 
-    // Initial render (respect sort state if already set)
+    // ---------- Initial render (honor default sort if set)
     clearIndicators();
     if (config.enable_sorting && this.sortState.key) applyIndicator();
-    const initialRows = (config.enable_sorting && this.sortState.key)
-      ? sortRows(rows, this.sortState.key, this.sortState.dir)
-      : rows;
+    const initialRows = (this.sortState.key) ? sortRows(rows, this.sortState.key, this.sortState.dir) : rows;
     renderBody(initialRows);
 
     // ---------- Assemble
