@@ -4,13 +4,23 @@ looker.plugins.visualizations.add({
   label: 'Grouped Header Grid',
 
   options: {
+    // Columns JSON: [{ field, key, label, group?, align?, bold?, heat?, header_bg?, header_color? }, ...]
+    // header_bg can be a hex like "#3f83f8" or the string "group" to inherit the group color
     columns_json: { type: 'string', label: 'Columns JSON', display: 'text', default: '' },
+
+    // Group Colors: { "Group Name": "#hex" }
     group_colors_json: { type: 'string', label: 'Group Colors JSON (optional)', display: 'text', default: '' },
+
+    // Layout / behavior
     table_height: { type: 'number', label: 'Max table height (px, 0 = auto)', default: 0 },
     center_group_titles: { type: 'boolean', label: 'Center group titles', default: true },
+
+    // Sorting
     enable_sorting: { type: 'boolean', label: 'Enable sorting (click headers)', default: true },
     default_sort_column: { type: 'string', label: 'Default sort column (key or label)', display: 'text', default: '' },
     default_sort_direction: { type: 'string', label: 'Default sort direction (asc/desc)', display: 'text', default: 'asc' },
+
+    // Debug
     debug_fields: { type: 'boolean', label: 'Show field debug header', default: false }
   },
 
@@ -30,10 +40,11 @@ looker.plugins.visualizations.add({
     const parseJSON = (txt, fb) => { try { return JSON.parse(txt || ''); } catch { return fb; } };
     const cols = parseJSON(config.columns_json, []);
     const groupColors = parseJSON(config.group_colors_json, {});
+
     if (!Array.isArray(cols) || cols.length === 0) {
       const m = document.createElement('div');
       m.style.padding = '16px';
-      m.innerHTML = `<b>Columns not configured</b><div style="opacity:.85;margin-top:8px">Paste your minified JSON into <i>Columns JSON</i>.</div>`;
+      m.innerHTML = `<b>Columns not configured</b><div style="opacity:.85;margin-top:8px">Paste a minified array into <i>Columns JSON</i>. You can use <code>header_bg</code> (hex or "group") and <code>header_color</code> per column.</div>`;
       this.wrap.appendChild(m); done(); return;
     }
 
@@ -66,6 +77,7 @@ looker.plugins.visualizations.add({
       return { ...c, _rowKey: rk };
     });
 
+    // ----- data extraction
     const rawVal = (row, key) => key && row[key] ? row[key].value : null;
     let rows = data.map(r => {
       const o = {}; resolvedCols.forEach(c => o[c.key] = rawVal(r, c._rowKey)); return o;
@@ -96,10 +108,10 @@ looker.plugins.visualizations.add({
       return `rgba(63,131,248,${0.12 + 0.28*t})`;
     };
 
-    // ----- scroll container (make it the sticky ancestor)
+    // ----- scroll container (sticky ancestor)
     const scroller = document.createElement('div');
     scroller.style.overflow = 'auto';
-    scroller.style.position = 'relative';            // important for sticky
+    scroller.style.position = 'relative';
     if (Number(config.table_height) > 0) scroller.style.maxHeight = `${config.table_height}px`;
 
     // table
@@ -113,6 +125,18 @@ looker.plugins.visualizations.add({
     const groupRowH = 44, leafRowH = 44;
     const zGroup = 3, zLeaf = 2;
 
+    // Resolve per-column leaf header colors
+    const resolveLeafHeaderColors = (col) => {
+      let bg = col.header_bg;
+      let color = col.header_color;
+      if (bg === 'group' && col.group) bg = groupColors[col.group];
+      // Fallbacks
+      if (!bg) bg = '#0b2557';                      // default navy for leaves
+      if (!color) color = (bg === '#0b2557') ? '#ffffff' : '#0b1020';
+      return { bg, color };
+    };
+
+    // header cell factory
     const makeTh = (txt, opts = {}) => {
       const th = document.createElement('th');
       th.textContent = txt;
@@ -127,7 +151,7 @@ looker.plugins.visualizations.add({
       th.style.verticalAlign = 'middle';
       th.style.height = (opts.isGroup ? groupRowH : leafRowH) + 'px';
       th.style.lineHeight = '1.3em';
-      th.style.backgroundClip = 'padding-box';       // fixes paint gaps in sticky
+      th.style.backgroundClip = 'padding-box';
       th.style.zIndex = opts.isGroup ? zGroup : zLeaf;
       if (opts.isGroup && config.center_group_titles) th.style.textAlign = 'center';
       return th;
@@ -141,19 +165,22 @@ looker.plugins.visualizations.add({
     let i = 0;
     const leafThByKey = {};
     while (i < resolvedCols.length) {
-      const g = resolvedCols[i].group;
+      const c0 = resolvedCols[i];
+      const g = c0.group;
 
       if (!g) {
-        const spacer = makeTh('', { isGroup: true, align: 'left' });
+        const spacer = makeTh('', { isGroup: true, align: 'left', bg: '#0b2557', color: '#ffffff' });
         spacer.style.borderBottom = 'none';
         spacer.style.top = '0px';
         r1.appendChild(spacer);
 
-        const th = makeTh(resolvedCols[i].label, { align: 'left' });
+        const { bg, color } = resolveLeafHeaderColors(c0);
+        const th = makeTh(c0.label, { align: 'left', bg, color });
         th.style.top = groupRowH + 'px';
-        th.dataset.key = resolvedCols[i].key;
+        th.dataset.key = c0.key;
         r2.appendChild(th);
-        leafThByKey[resolvedCols[i].key] = th;
+        leafThByKey[c0.key] = th;
+
         i++; continue;
       }
 
@@ -164,11 +191,13 @@ looker.plugins.visualizations.add({
       r1.appendChild(thg);
 
       for (let k = i; k < j; k++) {
-        const th = makeTh(resolvedCols[k].label, { align: 'left' });
+        const col = resolvedCols[k];
+        const { bg, color } = resolveLeafHeaderColors(col);
+        const th = makeTh(col.label, { align: 'left', bg, color });
         th.style.top = groupRowH + 'px';
-        th.dataset.key = resolvedCols[k].key;
+        th.dataset.key = col.key;
         r2.appendChild(th);
-        leafThByKey[resolvedCols[k].key] = th;
+        leafThByKey[col.key] = th;
       }
       i = j;
     }
@@ -211,7 +240,7 @@ looker.plugins.visualizations.add({
       });
     };
 
-    // sorting helpers
+    // sorting
     const sortRows = (arr, key, dir) => {
       const copy = arr.slice();
       const toVal = (v) => {
@@ -247,12 +276,13 @@ looker.plugins.visualizations.add({
       if (defKey) this.sortState = { key: defKey, dir: (String(config.default_sort_direction).toLowerCase() === 'desc' ? 'desc' : 'asc') };
     }
 
+    // sort UI
     const clearIndicators = () => {
       Object.values(leafThByKey).forEach(th => {
         th.style.cursor = config.enable_sorting ? 'pointer' : 'default';
         th.title = config.enable_sorting ? 'Click to sort' : '';
         th.innerText = th.innerText.replace(/\s*[▲▼]$/, '');
-        th.style.zIndex = zLeaf; // ensure above body
+        th.style.zIndex = zLeaf;
       });
     };
     const applyIndicator = () => {
