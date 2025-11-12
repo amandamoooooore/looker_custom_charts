@@ -1,8 +1,10 @@
 // -----------------------------------------------------------------------------
-// Grid-like Heatmap (with on-screen debug + Explore-safe point clicks)
-// - Shows a yellow banner if Highcharts can't load (CSP) or on any runtime error
-// - Renders a tiny "hello" heatmap first, then your grid-like heatmap
-// - Click-to-filter uses viz.trigger(...) from plugin scope (Explore-compatible)
+// Grid-like Heatmap (Debug + Explore-safe filtering)
+// - Loads Highcharts core (if needed) + modules in correct order: coloraxis → heatmap
+// - Clamps x/y axes to 0..count-1 so cells are always in view
+// - Shows a yellow banner for CSP/missing-module/runtime errors
+// - Grouped headers, centered leaf labels, optional sorting
+// - Click-to-filter: emitted from viz scope so Explore picks it up
 // -----------------------------------------------------------------------------
 looker.plugins.visualizations.add({
   id: 'grid_like_heatmap_debug',
@@ -25,12 +27,12 @@ looker.plugins.visualizations.add({
     click_filter_column: { type: 'string', label: 'Click filter column (key or label)', default: '' },
     click_filter_field:  { type: 'string', label: 'Click filter field (fully qualified Looker field)', default: '' },
 
-    // Debug helpers
+    // debug
     load_highcharts_from_cdn: { type: 'boolean', label: 'Load Highcharts from CDN', default: true },
     show_debug_banner: { type: 'boolean', label: 'Show debug banner', default: true }
   },
 
-  // --- loader ---
+  // loader helpers
   _ensureHC: null,
   _loadScriptOnce (src) {
     return new Promise((resolve, reject) => {
@@ -44,7 +46,7 @@ looker.plugins.visualizations.add({
   },
 
   create (element) {
-    // Root
+    // root
     const root = document.createElement('div');
     root.style.display = 'flex';
     root.style.flexDirection = 'column';
@@ -54,7 +56,7 @@ looker.plugins.visualizations.add({
     element.appendChild(root);
     this.root = root;
 
-    // Debug banner
+    // banner
     const banner = document.createElement('div');
     banner.style.display = 'none';
     banner.style.padding = '8px 10px';
@@ -64,10 +66,10 @@ looker.plugins.visualizations.add({
     banner.style.fontSize = '12px';
     banner.style.marginBottom = '6px';
     banner.style.borderRadius = '6px';
-    this.root.appendChild(banner);
+    root.appendChild(banner);
     this.banner = banner;
 
-    // Headers (two rows)
+    // headers
     const headerWrap = document.createElement('div');
     headerWrap.style.position = 'sticky';
     headerWrap.style.top = '0';
@@ -88,16 +90,16 @@ looker.plugins.visualizations.add({
     groupRow.style.borderBottom = '1px solid #e6e8ee';
     headerWrap.appendChild(groupRow);
     headerWrap.appendChild(leafRow);
-    this.root.appendChild(headerWrap);
+    root.appendChild(headerWrap);
     this.groupRow = groupRow;
     this.leafRow  = leafRow;
 
-    // Scroller & inner
+    // scroller & inner
     const scroller = document.createElement('div');
     scroller.style.flex = '1 1 auto';
     scroller.style.overflow = 'auto';
     scroller.style.position = 'relative';
-    this.root.appendChild(scroller);
+    root.appendChild(scroller);
     this.scroller = scroller;
 
     const inner = document.createElement('div');
@@ -106,20 +108,15 @@ looker.plugins.visualizations.add({
     scroller.appendChild(inner);
     this.inner = inner;
 
-    // Chart container
     const chartDiv = document.createElement('div');
     chartDiv.style.width = '100%';
     chartDiv.style.height = '100%';
     inner.appendChild(chartDiv);
     this.chartDiv = chartDiv;
 
-    // Sync scroll
     scroller.addEventListener('scroll', () => { headerWrap.scrollLeft = scroller.scrollLeft; });
 
-    // Resize watcher
-    this._resizeObserver = new ResizeObserver(() => {
-      if (this._redrawHeaders) this._redrawHeaders();
-    });
+    this._resizeObserver = new ResizeObserver(() => { if (this._redrawHeaders) this._redrawHeaders(); });
     this._resizeObserver.observe(scroller);
   },
 
@@ -134,11 +131,14 @@ looker.plugins.visualizations.add({
     try {
       hideBanner();
 
-      // Ensure Highcharts
+      // --- ensure Highcharts (correct module order: coloraxis → heatmap) ---
       if (!this._ensureHC) {
         this._ensureHC = (async () => {
           if (config.load_highcharts_from_cdn) {
-            await this._loadScriptOnce('https://code.highcharts.com/highcharts.js');
+            if (typeof Highcharts === 'undefined') {
+              await this._loadScriptOnce('https://code.highcharts.com/highcharts.js');
+            }
+            await this._loadScriptOnce('https://code.highcharts.com/modules/coloraxis.js');
             await this._loadScriptOnce('https://code.highcharts.com/modules/heatmap.js');
             await this._loadScriptOnce('https://code.highcharts.com/modules/accessibility.js');
           }
@@ -147,41 +147,47 @@ looker.plugins.visualizations.add({
       await this._ensureHC;
 
       if (typeof Highcharts === 'undefined' || !Highcharts.chart) {
-        showBanner('Highcharts failed to load (likely blocked by CSP). Allow code.highcharts.com or set "Load Highcharts from CDN" to Off if your environment pre-loads Highcharts.');
+        showBanner('Highcharts failed to load. Allow code.highcharts.com or preload Highcharts + coloraxis + heatmap.');
+        done(); return;
+      }
+      if (!Highcharts.seriesTypes || !Highcharts.seriesTypes.heatmap) {
+        showBanner('Heatmap module missing. Ensure coloraxis.js THEN heatmap.js are loaded.');
         done(); return;
       }
 
-      // Clear
+      // clear
       this.groupRow.innerHTML = '';
       this.leafRow.innerHTML  = '';
       this.chartDiv.innerHTML = '';
 
-      // Quick "hello" chart (so you see *something* even if Columns JSON is wrong)
+      // quick placeholder if no data
       if (!data || data.length === 0) {
         Highcharts.chart(this.chartDiv, {
           chart: { type: 'heatmap', height: 220, spacing: [0,0,0,0] },
           title: { text: null }, credits: { enabled: false }, legend: { enabled: false }, exporting: { enabled: false },
           xAxis: { visible: false }, yAxis: { visible: false },
-          colorAxis: { min: 0, max: 1, stops: [[0, '#ffffff'], [1, '#ffffff']] },
+          colorAxis: { min: 0, max: 1, stops: [[0,'#fff'],[1,'#fff']] },
           tooltip: { enabled: false },
-          series: [{ data: [{x:0,y:0,value:1,color:'#ffffff',borderColor:'#e6e8ee',borderWidth:1, dataLabels:{enabled:true,useHTML:true,formatter(){return '<div style="width:100%;text-align:center">No data</div>';}, style:{textOutline:'none'}}}] }]
+          series: [{ data: [{x:0,y:0,value:1,color:'#fff',borderColor:'#e6e8ee',borderWidth:1,
+                     dataLabels:{enabled:true,useHTML:true,formatter(){return '<div style="text-align:center;width:100%">No data</div>';},style:{textOutline:'none'}} }] }]
         });
         done(); return;
       }
 
-      // Parse options
+      // parse options
       const parseJSON = (txt, fb) => { try { return JSON.parse(txt || ''); } catch { return fb; } };
       const cols = parseJSON(config.columns_json, []);
       const groupColors = parseJSON(config.group_colors_json, {});
       if (!Array.isArray(cols) || cols.length === 0) {
-        showBanner('Configure Columns JSON to render the grid-like table. Showing a tiny placeholder chart.');
+        showBanner('Configure Columns JSON. Showing placeholder.');
         Highcharts.chart(this.chartDiv, {
           chart: { type: 'heatmap', height: 220, spacing: [0,0,0,0] },
           title: { text: null }, credits: { enabled: false }, legend: { enabled: false }, exporting: { enabled: false },
           xAxis: { visible: false }, yAxis: { visible: false },
-          colorAxis: { min: 0, max: 1, stops: [[0, '#ffffff'], [1, '#ffffff']] },
+          colorAxis: { min: 0, max: 1, stops: [[0,'#fff'],[1,'#fff']] },
           tooltip: { enabled: false },
-          series: [{ data: [{x:0,y:0,value:1,color:'#ffffff',borderColor:'#e6e8ee',borderWidth:1, dataLabels:{enabled:true,useHTML:true,formatter(){return '<div style="width:100%;text-align:center">Add Columns JSON</div>';}, style:{textOutline:'none'}}}] }]
+          series: [{ data: [{x:0,y:0,value:1,color:'#fff',borderColor:'#e6e8ee',borderWidth:1,
+                     dataLabels:{enabled:true,useHTML:true,formatter(){return '<div style="text-align:center;width:100%">Add Columns JSON</div>';},style:{textOutline:'none'}} }] }]
         });
         done(); return;
       }
@@ -189,7 +195,7 @@ looker.plugins.visualizations.add({
       const colMinW = Math.max(60, Number(config.col_min_width) || 120);
       if (Number(config.table_height) > 0) this.scroller.style.maxHeight = `${config.table_height}px`;
 
-      // Resolve fields
+      // resolve fields
       const allFieldDefs = [
         ...(queryResponse.fields?.dimension_like || []),
         ...(queryResponse.fields?.measure_like || []),
@@ -211,13 +217,12 @@ looker.plugins.visualizations.add({
       };
       const resolvedCols = cols.map(c => ({ ...c, _rowKey: resolveField(c.field) }));
 
-      // If nothing resolved, show why
       if (resolvedCols.every(c => !c._rowKey)) {
-        showBanner('None of the column fields in Columns JSON could be resolved to query fields. Make sure each item’s "field" matches a field in this Explore (fully-qualified or resolvable).');
+        showBanner('Columns JSON fields did not resolve to this Explore. Use fully-qualified field names.');
         done(); return;
       }
 
-      // Pull values
+      // values
       const rawVal = (row, key) => key && row[key] ? row[key].value : null;
       const fmtVal = (row, key) => key && row[key] ? (row[key].rendered ?? row[key].value) : null;
 
@@ -230,7 +235,7 @@ looker.plugins.visualizations.add({
         return o;
       });
 
-      // Sorting
+      // sorting
       const findKeyByLabelOrKey = (val) => {
         if (!val) return null;
         const low = String(val).toLowerCase();
@@ -264,11 +269,11 @@ looker.plugins.visualizations.add({
       };
       applySort();
 
-      // Column widths & total width
+      // widths
       const colWidths = resolvedCols.map(c => Math.max(colMinW, Number(c.width) || colMinW));
       const totalWidth = colWidths.reduce((a,b)=>a+b, 0);
 
-      // Build headers (HTML)
+      // header rendering
       const makeDiv = (txt, opts={}) => {
         const d = document.createElement('div');
         d.textContent = txt || '';
@@ -338,7 +343,7 @@ looker.plugins.visualizations.add({
         }
       });
 
-      // Build the heatmap points (single series)
+      // build points
       const xCount = resolvedCols.length;
       const yCount = rows.length;
       const dataPoints = [];
@@ -349,7 +354,6 @@ looker.plugins.visualizations.add({
           const fmt = rows[y]['__fmt__' + col.key];
           const align = (col.align || 'left').toLowerCase();
 
-          // numeric (not used for color yet; here to keep Highcharts happy)
           const n = Number(String(raw).replace(/[, ]+/g, '').replace(/[%£$€]/g, ''));
           const value = Number.isFinite(n) ? n : 0;
 
@@ -376,20 +380,24 @@ looker.plugins.visualizations.add({
         }
       }
 
-      // Width & height
-      this.inner.style.width = `${colWidths.reduce((a,b)=>a+b,0)}px`;
-      this.groupRow.style.width = this.inner.style.width;
-      this.leafRow.style.width  = this.inner.style.width;
+      if (!dataPoints.length) {
+        showBanner(`No cells built: cols=${xCount}, rows=${yCount}. Check that Columns JSON fields resolve.`);
+      }
+
+      // sizes
+      this.inner.style.width = `${totalWidth}px`;
+      this.groupRow.style.width = `${totalWidth}px`;
+      this.leafRow.style.width  = `${totalWidth}px`;
       const headerH = 88;
       const maxH = Number(config.table_height) > 0 ? Number(config.table_height) : this.root.clientHeight || 480;
       const chartH = Math.max(200, maxH - headerH);
       this.chartDiv.style.height = `${chartH}px`;
 
-      // Hidden axes categories
-      const xCategories = resolvedCols.map(c => c.label);
-      const yCategories = rows.map((_, i) => String(i+1));
+      // axes (CLAMPED so grid is always visible)
+      const xCats = resolvedCols.map(c => c.label);
+      const yCats = rows.map((_, i) => String(i+1));
 
-      // Click-to-filter config
+      // click-to-filter setup
       const clickKey = config.enable_click_filter ? (findKeyByLabelOrKey(config.click_filter_column) || null) : null;
       const clickFieldFallback = (() => {
         if (!clickKey) return null;
@@ -397,15 +405,18 @@ looker.plugins.visualizations.add({
         return col?._rowKey || null;
       })();
       const clickFieldName = (config.click_filter_field || clickFieldFallback || '').trim();
+      const viz = this;
 
-      // Render chart
-      const viz = this; // capture viz scope for triggering
+      // render chart
       Highcharts.chart(this.chartDiv, {
         chart: { type: 'heatmap', spacing: [0,0,0,0], animation: false },
         title: { text: null }, credits: { enabled: false }, exporting: { enabled: false }, legend: { enabled: false },
         tooltip: { enabled: false },
-        xAxis: { categories: xCategories, visible: false },
-        yAxis: { categories: yCategories, visible: false, min: -0.5, max: yCount - 0.5 },
+
+        // 👇 clamp axes to 0..count-1
+        xAxis: { categories: xCats, visible: false, min: 0, max: Math.max(0, xCount - 1) },
+        yAxis: { categories: yCats, visible: false, min: 0, max: Math.max(0, yCount - 1) },
+
         colorAxis: { min: 0, max: 1, stops: [[0, '#ffffff'], [1, '#ffffff']] },
 
         plotOptions: {
@@ -424,9 +435,8 @@ looker.plugins.visualizations.add({
                   const fmt = this.point?.custom?.fmt ?? (raw == null ? '' : String(raw));
                   if (raw == null || raw === '') return;
 
-                  // Explore-friendly (same as your working area chart)
+                  // Explore-friendly (legacy array-of-objects) + dashboard events
                   viz.trigger('filter', [{ field: clickFieldName, value: String(raw), formatted: String(fmt) }]);
-                  // Dashboards too
                   viz.trigger('dashboard:filter', { field: clickFieldName, value: String(raw) });
                   viz.trigger('dashboard:run');
                 }
@@ -444,7 +454,7 @@ looker.plugins.visualizations.add({
         }]
       });
 
-      // Sort indicators
+      // sort indicators
       const applySortIndicators = () => {
         if (!config.enable_sorting || !this._sortState?.key) return;
         Array.from(this.leafRow.children).forEach(el => {
@@ -460,19 +470,16 @@ looker.plugins.visualizations.add({
       };
       applySortIndicators();
 
-      this._redrawHeaders = () => { /* widths fixed from colWidths */ };
+      this._redrawHeaders = () => { /* fixed widths */ };
 
       done();
     } catch (err) {
       console.error(err);
-      // Surface any error to the user so you don't get a blank viz
       this.chartDiv.innerHTML = '';
-      if (this.options && this.root) {
-        const msg = (err && err.message) ? err.message : String(err);
-        const lines = (err && err.stack) ? `<pre style="margin-top:6px;white-space:pre-wrap">${String(err.stack)}</pre>` : '';
-        this.banner.innerHTML = `💥 <b>Viz error:</b> ${msg}${lines}`;
-        this.banner.style.display = 'block';
-      }
+      const msg = (err && err.message) ? err.message : String(err);
+      const stack = (err && err.stack) ? `<pre style="margin-top:6px;white-space:pre-wrap">${String(err.stack)}</pre>` : '';
+      this.banner.innerHTML = `💥 <b>Viz error:</b> ${msg}${stack}`;
+      this.banner.style.display = 'block';
       done();
     }
   }
