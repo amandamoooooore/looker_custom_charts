@@ -194,6 +194,9 @@ looker.plugins.visualizations.add({
         spacing: [10,10,10,10],
         styledMode: false
       },
+      credits: {
+        enabled: false
+      },
       exporting: { enabled: false }, // hide hamburger
       colors: palette.length ? palette : undefined,
       title: { text: null },
