@@ -95,24 +95,13 @@ looker.plugins.visualizations.add({
       const css = document.createElement("style");
       css.id = "hm_heatmap_css";
       css.textContent = `
-        /* Reset Highcharts HTML tooltip wrapper and provide opaque inner box */
-        .highcharts-tooltip.hm-tooltip > span{
-          background: transparent !important;
-          border: 0 !important;
-          padding: 0 !important;
-          white-space: nowrap !important; /* let width grow with content */
-          display: inline-block !important;
-        }
-        .highcharts-tooltip.hm-tooltip .hm-tooltip-inner{
-          display: inline-block;          /* shrink/grow to content */
-          background: #ffffff;            /* opaque bg */
-          border: 1px solid #9aa0a6;
-          border-radius: 6px;
-          padding: 8px 10px;
-          box-shadow: 0 2px 8px rgba(0,0,0,.15);
-          color: #000;
-          white-space: nowrap;            /* single-line => auto-width */
-          max-width: none;                /* no hard cap */
+        .highcharts-tooltip.sa-tooltip > span {
+          background: #fff !important; /* white background */
+          border: none !important;     /* remove inner border */
+          box-shadow: none !important; /* remove shadow */
+          border-radius: 6px !important;
+          padding: 6px 10px !important;
+          color: #000 !important;
         }
       `;
       document.head.appendChild(css);
@@ -410,8 +399,15 @@ looker.plugins.visualizations.add({
       tooltip: {
         useHTML: !!config.use_second_measure_tooltip,
         className: 'hm-tooltip',      // used by the CSS above
-        outside: true,                 // keeps it above other elements (optional)
-        style: { color: '#000', whiteSpace: 'nowrap' }, // ensure auto-width
+        outside: true,
+        backgroundColor: "#fff", // keep white background
+        borderColor: "#ccc",  // remove inner border
+        borderWidth: 1,
+        borderRadius: 6,
+        shadow: false, // remove drop shadow
+        shape: "callout", // keep the pointer
+        padding: 6,
+        style: { color: "#000", whiteSpace: "nowrap" },
         formatter: function () {
           const wrap = (html) => `<span class="hm-tooltip-inner">${html}</span>`;
 
