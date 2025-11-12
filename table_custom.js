@@ -4,18 +4,13 @@ looker.plugins.visualizations.add({
   label: 'Grouped Header Grid',
 
   options: {
-    // Paste minified JSON for columns (order matters)
-    // Each: { field, key, label, group?, align?, bold?, heat? }
+    // Paste minified JSON array: [{ field, key, label, group?, align?, bold?, heat? }, ...]
     columns_json: { type: 'string', label: 'Columns JSON', display: 'text', default: '' },
-    // Optional group color map: { "Group Name": "#color" }
+    // Optional map: { "Group Name": "#color" }
     group_colors_json: { type: 'string', label: 'Group Colors JSON (optional)', display: 'text', default: '' },
 
     table_height: { type: 'number', label: 'Max table height (px, 0 = auto)', default: 0 },
-
-    // Toggle to center the top group titles
     center_group_titles: { type: 'boolean', label: 'Center group titles', default: true },
-
-    // Helper while wiring fields (shows the exact field keys returned by the query)
     debug_fields: { type: 'boolean', label: 'Show field debug header', default: false }
   },
 
@@ -31,7 +26,7 @@ looker.plugins.visualizations.add({
   updateAsync (data, element, config, queryResponse, details, done) {
     this.wrap.innerHTML = '';
 
-    // ---- Parse options safely
+    // ---- Parse options
     const parseJSON = (txt, fallback) => { try { return JSON.parse(txt || ''); } catch { return fallback; } };
     const cols = parseJSON(config.columns_json, []);
     const groupColors = parseJSON(config.group_colors_json, {});
@@ -46,14 +41,13 @@ looker.plugins.visualizations.add({
       done(); return;
     }
 
-    // ---- Gather available fields from the query and build a resolver
+    // ---- Field resolver
     const allFieldDefs = [
       ...(queryResponse.fields?.dimension_like || []),
       ...(queryResponse.fields?.measure_like || []),
       ...(queryResponse.fields?.table_calculations || [])
     ];
-    const fieldKeys = allFieldDefs.map(f => f.name); // "view.field"
-
+    const fieldKeys = allFieldDefs.map(f => f.name);
     const shortToFull = {};
     const labelToFull = {};
     allFieldDefs.forEach(f => {
@@ -64,15 +58,14 @@ looker.plugins.visualizations.add({
         if (!labelToFull[k]) labelToFull[k] = f.name;
       }
     });
-
     const resolveField = (spec) => {
       if (!spec) return null;
-      if (fieldKeys.includes(spec)) return spec;                       // exact
-      const ends = fieldKeys.find(k => k.endsWith('.' + spec));        // endsWith
+      if (fieldKeys.includes(spec)) return spec;
+      const ends = fieldKeys.find(k => k.endsWith('.' + spec));
       if (ends) return ends;
-      const byLabel = labelToFull[String(spec).toLowerCase()];         // label_short
+      const byLabel = labelToFull[String(spec).toLowerCase()];
       if (byLabel) return byLabel;
-      if (shortToFull[spec]) return shortToFull[spec];                 // short map
+      if (shortToFull[spec]) return shortToFull[spec];
       return null;
     };
 
@@ -95,7 +88,7 @@ looker.plugins.visualizations.add({
       return { ...c, _rowKey: resolved };
     });
 
-    // ---- Build rows from Looker data
+    // ---- Data rows
     const getVal = (row, key) => key && row[key] ? row[key].value : null;
     const rows = data.map(r => {
       const obj = {};
@@ -114,7 +107,7 @@ looker.plugins.visualizations.add({
     table.style.borderSpacing = '0';
     table.style.tableLayout = 'fixed';
 
-    // ---- Header cell factory (honors the centering toggle for group titles)
+    // ---- Header cell factory
     const makeTh = (txt, opts = {}) => {
       const th = document.createElement('th');
       th.textContent = txt;
@@ -123,12 +116,12 @@ looker.plugins.visualizations.add({
       th.style.fontSize = '13px';
       th.style.textAlign = opts.align || 'left';
       th.style.borderBottom = '1px solid #e6e8ee';
-      th.style.background = opts.bg ?? '#0b2557';
+      th.style.background = opts.bg ?? '#0b2557';  // navy default
       th.style.color = opts.color ?? (opts.bg ? '#0b1020' : '#ffffff');
       th.style.position = 'sticky';
       th.style.top = '0';
       th.style.verticalAlign = 'middle';
-      th.style.height = '40px';
+      th.style.height = '44px';
       th.style.lineHeight = '1.3em';
 
       if (opts.isGroup && config.center_group_titles) {
@@ -137,7 +130,7 @@ looker.plugins.visualizations.add({
       return th;
     };
 
-    // ---- Build header (two rows: group row + leaf row)
+    // ---- Build header (two rows; ALL labels in row 2)
     const thead = document.createElement('thead');
     const r1 = document.createElement('tr');
     const r2 = document.createElement('tr');
@@ -145,27 +138,40 @@ looker.plugins.visualizations.add({
     let i = 0;
     while (i < resolvedCols.length) {
       const g = resolvedCols[i].group;
+
       if (!g) {
+        // Spacer cell in the top row (keeps heights consistent)
+        const spacer = makeTh('', { align: 'left' }); // navy background by default
+        spacer.style.borderBottom = 'none';
+        r1.appendChild(spacer);
+
+        // Actual label in the second row
         const th = makeTh(resolvedCols[i].label, { align: 'left' });
-        th.rowSpan = 2;
-        r1.appendChild(th);
-        i++; continue;
+        r2.appendChild(th);
+
+        i++;
+        continue;
       }
+
+      // Grouped block
       let j = i;
       while (j < resolvedCols.length && resolvedCols[j].group === g) j++;
+
       const thg = makeTh(g, { bg: groupColors[g] || '#d9e3f8', color: '#0b1020', isGroup: true });
       thg.colSpan = j - i;
       r1.appendChild(thg);
+
       for (let k = i; k < j; k++) {
         const th = makeTh(resolvedCols[k].label, { align: 'left' });
         r2.appendChild(th);
       }
       i = j;
     }
+
     thead.appendChild(r1);
     thead.appendChild(r2);
 
-    // ---- Body (heatmap applied if a column has heat:true; no toggle)
+    // ---- Body (heatmap per-column if "heat": true in Columns JSON)
     const tbody = document.createElement('tbody');
 
     const heatCols = resolvedCols.filter(c => c.heat);
@@ -201,20 +207,27 @@ looker.plugins.visualizations.add({
         const v = r[c.key];
         td.textContent = v == null ? '' : (v.toLocaleString?.() ?? String(v));
         td.style.padding = '10px';
-        td.style.borderBottom = '1px solid #eef1f6';   // <-- fixed syntax
+        td.style.borderBottom = '1px solid #eef1f6';
         td.style.textAlign = c.align || 'left';
         td.style.fontWeight = c.bold ? '700' : '400';
         td.style.whiteSpace = 'nowrap';
         td.style.overflow = 'hidden';
         td.style.textOverflow = 'ellipsis';
-        if (c.heat) td.style.background = shade(c.key, Number(v)); // no toggle
+        if (c.heat) td.style.background = shade(c.key, Number(v));
         tr.appendChild(td);
       });
       tbody.appendChild(tr);
     });
 
+    const table = document.createElement('table');
+    table.style.width = '100%';
+    table.style.borderCollapse = 'separate';
+    table.style.borderSpacing = '0';
+    table.style.tableLayout = 'fixed';
+
     table.appendChild(thead);
     table.appendChild(tbody);
+
     scroller.appendChild(table);
     this.wrap.appendChild(scroller);
 
