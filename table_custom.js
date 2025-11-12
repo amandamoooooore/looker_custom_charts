@@ -1,26 +1,28 @@
-// HC
-
+// -----------------------------------------------------------------------------
+// Highcharts Grid — Grouped Header (with Explore & Dashboard filtering)
+// - supports.crossfilter enabled
+// - Tries Highcharts Grid Lite; falls back to internal HTML table if CSP blocks
+// - Grouped headers, centered labels, synced widths (fallback), sorting + defaults
+// - Click-to-filter in BOTH Explore (filter+run) and Dashboards (dashboard:filter)
+// -----------------------------------------------------------------------------
 looker.plugins.visualizations.add({
   id: 'hc_grouped_grid',
   label: 'Highcharts Grid — Grouped Header',
+
+  // 👇 This enables Looker crossfilter integrations (Explore/Dashboard)
   supports: { crossfilter: true },
 
   options: {
-    // Data/columns
     columns_json: { type: 'string', label: 'Columns JSON', display: 'text', default: '' },
-    // Example item: { field:"view.dim", key:"make", label:"Make", group:"Vehicle", align:"center", bold:true, width:120, header_bg:"group", header_color:"#fff" }
     group_colors_json: { type: 'string', label: 'Group Colors JSON (optional)', display: 'text', default: '' },
 
-    // Layout & style
     table_height: { type: 'number', label: 'Max table height (px, 0=auto)', default: 450 },
     center_group_titles: { type: 'boolean', label: 'Center group titles', default: true },
 
-    // Sorting
     enable_sorting: { type: 'boolean', label: 'Enable sorting (header click)', default: true },
     default_sort_column: { type: 'string', label: 'Default sort column (key or label)', display: 'text', default: '' },
     default_sort_direction: { type: 'string', label: 'Default sort direction (asc/desc)', display: 'text', default: 'asc' },
 
-    // Click-to-filter
     enable_click_filter: { type: 'boolean', label: 'Enable click-to-filter', default: true },
     click_filter_column: { type: 'string', label: 'Click filter column (key or label)', display: 'text', default: '' },
     click_filter_field: { type: 'string', label: 'Click filter field (fully qualified Looker field)', display: 'text', default: '' },
@@ -36,12 +38,10 @@ looker.plugins.visualizations.add({
       default: 'both'
     },
 
-    // Safety switch: try Highcharts Grid first; if blocked, fallback to internal table
     prefer_highcharts_grid: { type: 'boolean', label: 'Prefer Highcharts Grid', default: true }
   },
 
   create (element) {
-    // Root
     const root = document.createElement('div');
     root.style.position = 'relative';
     root.style.width = '100%';
@@ -50,7 +50,6 @@ looker.plugins.visualizations.add({
     element.appendChild(root);
     this.root = root;
 
-    // Containers
     const hcContainer = document.createElement('div');
     hcContainer.id = 'hcgrid-' + Math.random().toString(36).slice(2);
     hcContainer.style.width = '100%';
@@ -62,10 +61,11 @@ looker.plugins.visualizations.add({
     fallbackWrap.style.display = 'none';
     fallbackWrap.style.width = '100%';
     fallbackWrap.style.height = '100%';
+    fallbackWrap.style.display = 'flex';
+    fallbackWrap.style.flexDirection = 'column';
     this.root.appendChild(fallbackWrap);
     this.fallbackWrap = fallbackWrap;
 
-    // For fallback headers/body
     const groupHeaderWrap = document.createElement('div');
     const colHeaderWrap = document.createElement('div');
     const scroller = document.createElement('div');
@@ -81,7 +81,7 @@ looker.plugins.visualizations.add({
     scroller.style.position = 'relative';
     scroller.style.width = '100%';
     scroller.style.flex = '1 1 auto';
-    scroller.style.maxHeight = '450px'; // default; overridden by config
+    scroller.style.maxHeight = '450px';
     fallbackWrap.appendChild(groupHeaderWrap);
     fallbackWrap.appendChild(colHeaderWrap);
     fallbackWrap.appendChild(scroller);
@@ -90,34 +90,24 @@ looker.plugins.visualizations.add({
     this.colHeaderWrap = colHeaderWrap;
     this.scroller = scroller;
 
-    // Loader util
     this._loadScript = (src) => new Promise((resolve, reject) => {
-      // avoid duplicate script loads
       if (document.querySelector(`script[src="${src}"]`)) return resolve();
       const s = document.createElement('script');
-      s.src = src;
-      s.async = true;
-      s.onload = () => resolve();
-      s.onerror = () => reject(new Error('Failed to load ' + src));
+      s.src = src; s.async = true; s.onload = resolve; s.onerror = () => reject(new Error('Failed to load ' + src));
       document.head.appendChild(s);
     });
     this._loadCSS = (href) => new Promise((resolve, reject) => {
       if (document.querySelector(`link[href="${href}"]`)) return resolve();
       const l = document.createElement('link');
-      l.rel = 'stylesheet';
-      l.href = href;
-      l.onload = () => resolve();
-      l.onerror = () => reject(new Error('Failed to load ' + href));
+      l.rel = 'stylesheet'; l.href = href; l.onload = resolve; l.onerror = () => reject(new Error('Failed to load ' + href));
       document.head.appendChild(l);
     });
 
-    // Observe resize for fallback width sync
     this._resizeObserver = new ResizeObserver(() => this._syncWidths && this._syncWidths());
     this._resizeObserver.observe(scroller);
   },
 
   async updateAsync (data, element, config, queryResponse, details, done) {
-    // Reset containers
     this.hcContainer.innerHTML = '';
     this.fallbackWrap.style.display = 'none';
     this.hcContainer.style.display = 'block';
@@ -125,7 +115,6 @@ looker.plugins.visualizations.add({
     this.colHeaderWrap.innerHTML = '';
     this.scroller.innerHTML = '';
 
-    // Parse config
     const parseJSON = (txt, fb) => { try { return JSON.parse(txt || ''); } catch { return fb; } };
     const cols = parseJSON(config.columns_json, []);
     const groupColors = parseJSON(config.group_colors_json, {});
@@ -135,7 +124,6 @@ looker.plugins.visualizations.add({
     }
     if (Number(config.table_height) > 0) this.scroller.style.maxHeight = `${config.table_height}px`;
 
-    // Resolve fields
     const allFieldDefs = [
       ...(queryResponse.fields?.dimension_like || []),
       ...(queryResponse.fields?.measure_like || []),
@@ -152,17 +140,14 @@ looker.plugins.visualizations.add({
     const resolveField = (s) => {
       if (!s) return null;
       if (fieldByName[s]) return s;
-      const end = Object.keys(fieldByName).find(n => n.endsWith('.' + s));
-      if (end) return end;
-      const byLabel = labelToName[String(s).toLowerCase()];
-      if (byLabel) return byLabel;
+      const end = Object.keys(fieldByName).find(n => n.endsWith('.' + s)); if (end) return end;
+      const byLabel = labelToName[String(s).toLowerCase()]; if (byLabel) return byLabel;
       if (shortToName[s]) return shortToName[s];
       return null;
     };
 
     const resolvedCols = cols.map(c => ({ ...c, _rowKey: resolveField(c.field) }));
 
-    // Build row set (raw + formatted side-by-side)
     const rawVal = (row, key) => key && row[key] ? row[key].value : null;
     const fmtVal = (row, key) => key && row[key] ? (row[key].rendered ?? row[key].value) : null;
 
@@ -175,7 +160,6 @@ looker.plugins.visualizations.add({
       return out;
     });
 
-    // Locate click-to-filter target
     const findKeyByLabelOrKey = (val) => {
       if (!val) return null;
       const low = String(val).toLowerCase();
@@ -192,12 +176,11 @@ looker.plugins.visualizations.add({
     })();
     const clickFieldName = (config.click_filter_field || clickFieldFallback || '').trim();
 
-    // Emit filter (Explore + Dashboards)
     const emitFilter = (field, raw, formatted) => {
       const mode = (config.click_filter_value_mode || 'both').toLowerCase();
       const send = (value) => {
-        this.trigger('filter', { field, value, run: true });       // Explore
-        this.trigger('dashboard:filter', { field, value });         // Dashboards
+        this.trigger('filter', { field, value, run: true });     // Explore
+        this.trigger('dashboard:filter', { field, value });       // Dashboards
         this.trigger('dashboard:run');
       };
       if (mode === 'raw') send(raw);
@@ -206,29 +189,23 @@ looker.plugins.visualizations.add({
       try { console.log('[HC Grid] filter click →', { field, raw, formatted, mode }); } catch (e) {}
     };
 
-    // ---- Try to render with Highcharts Grid ----
     const wantHC = config.prefer_highcharts_grid !== false;
     let renderedWithHC = false;
 
     if (wantHC) {
       try {
-        // Load Grid Lite (official docs recommend jsDelivr)
-        // JS + CSS are safe to include multiple times (we guard above)
         await this._loadCSS('https://cdn.jsdelivr.net/npm/@highcharts/grid-lite/css/grid-lite.css');
         await this._loadScript('https://cdn.jsdelivr.net/npm/@highcharts/grid-lite/grid-lite.js');
 
-        if (typeof Grid === 'undefined' || !Grid.grid) {
-          throw new Error('Highcharts Grid not available globally');
-        }
+        if (typeof Grid === 'undefined' || !Grid.grid) throw new Error('Highcharts Grid not available');
 
-        // Build Grid columns config & header rows
-        // 1) DataTable: columns -> arrays
+        // Build DataTable
         const dataTable = { columns: {} };
         resolvedCols.forEach(c => {
           dataTable.columns[c.key] = rows.map(r => r[c.key]);
         });
 
-        // 2) Column defs: id, width, alignment, sorting
+        // Column defs
         const defaultSortable = !!config.enable_sorting;
         const dir = String(config.default_sort_direction || 'asc').toLowerCase() === 'desc' ? 'desc' : 'asc';
         const defKey = findKeyByLabelOrKey(config.default_sort_column);
@@ -236,25 +213,17 @@ looker.plugins.visualizations.add({
         const columns = resolvedCols.map(c => {
           const width = (c.width != null) ? c.width : undefined;
           const align = (c.align || 'left');
-          const { bg, color } = (() => {
-            let bg = c.header_bg, color = c.header_color;
-            if ((bg === 'group' || bg === 'GROUP') && c.group) bg = groupColors[c.group] || '#d9e3f8';
-            if (!bg) bg = '#0b2557';
-            if (!color) color = (String(bg).toLowerCase() === '#0b2557') ? '#ffffff' : '#0b1020';
-            return { bg, color };
-          })();
-
+          let bg = c.header_bg, color = c.header_color;
+          if ((bg === 'group' || bg === 'GROUP') && c.group) bg = groupColors[c.group] || '#d9e3f8';
+          if (!bg) bg = '#0b2557';
+          if (!color) color = (String(bg).toLowerCase() === '#0b2557') ? '#ffffff' : '#0b1020';
           return {
             id: c.key,
             width,
             header: {
               format: c.label,
               className: `hc-col-${c.key}`,
-              style: { // Grid will map inline styles
-                background: bg,
-                color: color,
-                textAlign: 'center'
-              }
+              style: { background: bg, color, textAlign: 'center' }
             },
             cells: {
               className: `hc-cell-${c.key}`,
@@ -267,28 +236,23 @@ looker.plugins.visualizations.add({
           };
         });
 
-        // 3) Grouped header rows: one row of groups, one row of leaf labels
-        // Grid supports multi-row headers; we create top row with colSpans
+        // Header rows (groups)
         const headerRows = [];
-        // top row
         const topCells = [];
         let i = 0;
         while (i < resolvedCols.length) {
           const start = resolvedCols[i];
           const groupName = start.group;
           if (!groupName) {
-            // Ungrouped — use the same background as its leaf header
             const leafCol = columns.find(cc => cc.id === start.key);
             topCells.push({
               colSpan: 1,
               format: '',
               style: { background: leafCol.header.style.background, borderBottom: 'none' }
             });
-            i++;
-            continue;
+            i++; continue;
           }
-          let j = i + 1;
-          while (j < resolvedCols.length && resolvedCols[j].group === groupName) j++;
+          let j = i + 1; while (j < resolvedCols.length && resolvedCols[j].group === groupName) j++;
           const span = j - i;
           topCells.push({
             colSpan: span,
@@ -304,9 +268,7 @@ looker.plugins.visualizations.add({
         }
         headerRows.push({ cells: topCells });
 
-        // leaf row is auto from columns.header.format
-
-        // 4) Build grid options
+        // Grid options
         const gridOptions = {
           dataTable,
           columnDefaults: {
@@ -316,35 +278,21 @@ looker.plugins.visualizations.add({
           },
           columns,
           header: { rows: headerRows },
-          // Size
-          renderTo: this.hcContainer.id,
-          // Scrolling height
-          scroll: {
-            // Grid auto-sizes; use container height to limit
-          }
+          renderTo: this.hcContainer.id
         };
 
-        // Render
         this.hcContainer.style.maxHeight = (Number(config.table_height) > 0) ? `${config.table_height}px` : 'inherit';
         const grid = Grid.grid(this.hcContainer.id, gridOptions);
 
-        // Click-to-filter via DOM delegation (Grid Lite has limited events; safe approach)
+        // Click-to-filter delegation
         if (config.enable_click_filter && clickKey && clickFieldName) {
           this.hcContainer.addEventListener('click', (ev) => {
-            const cell = ev.target.closest('td,th');
-            if (!cell) return;
-            // Find column id by class
-            const match = Array.from(cell.classList).find(cn => cn.startsWith('hc-cell-'));
-            if (!match) return;
-            const colId = match.replace('hc-cell-', '');
-            if (colId !== clickKey) return;
+            const cell = ev.target.closest('td,th'); if (!cell) return;
+            const cls = Array.from(cell.classList).find(cn => cn.startsWith('hc-cell-')); if (!cls) return;
+            const colId = cls.replace('hc-cell-', ''); if (colId !== clickKey) return;
 
-            // Row index by nearest TR
-            const tr = ev.target.closest('tr');
-            if (!tr) return;
-            const rowIndexAttr = tr.getAttribute('data-row-index');
-            // If Grid doesn't expose row index attribute, fallback by computing from position
-            let rowIndex = rowIndexAttr ? Number(rowIndexAttr) : Array.from(tr.parentElement.children).indexOf(tr);
+            const tr = ev.target.closest('tr'); if (!tr) return;
+            let rowIndex = Array.from(tr.parentElement.children).indexOf(tr);
             if (rowIndex < 0) return;
 
             const raw = rows[rowIndex]?.[clickKey];
@@ -352,9 +300,7 @@ looker.plugins.visualizations.add({
             if (raw == null || raw === '') return;
 
             emitFilter(clickFieldName, raw, formatted);
-            // subtle feedback
-            cell.style.outline = '2px solid rgba(63,131,248,.6)';
-            setTimeout(() => (cell.style.outline = ''), 250);
+            cell.style.outline = '2px solid rgba(63,131,248,.6)'; setTimeout(() => (cell.style.outline = ''), 250);
           });
         }
 
@@ -365,13 +311,11 @@ looker.plugins.visualizations.add({
       }
     }
 
-    // ---- Fallback renderer (previous HTML table engine) ----
+    // ---------- Fallback HTML table (with crossfilter events) ----------
     if (!renderedWithHC) {
       this.hcContainer.style.display = 'none';
       this.fallbackWrap.style.display = 'flex';
-      this.fallbackWrap.style.flexDirection = 'column';
 
-      // Build quick helpers
       const makeTable = () => {
         const t = document.createElement('table');
         t.style.borderCollapse = 'separate';
@@ -406,7 +350,6 @@ looker.plugins.visualizations.add({
         return td;
       };
 
-      // Header tables
       const groupTable = makeTable();
       const groupRow = document.createElement('tr');
       const colTable = makeTable();
@@ -417,18 +360,21 @@ looker.plugins.visualizations.add({
         const c0 = resolvedCols[i];
         const group = c0.group;
         if (!group) {
-          // Spacer same bg as leaf
-          const { bg } = (() => {
-            let bg = c0.header_bg;
-            if ((bg === 'group' || bg === 'GROUP') && c0.group) bg = groupColors[c0.group] || '#d9e3f8';
-            if (!bg) bg = '#0b2557';
-            return { bg };
-          })();
+          let bg = c0.header_bg;
+          if ((bg === 'group' || bg === 'GROUP') && c0.group) bg = groupColors[c0.group] || '#d9e3f8';
+          if (!bg) bg = '#0b2557';
           const spacer = makeTh('', { bg, color: '#fff' });
           spacer.style.borderBottom = 'none';
           groupRow.appendChild(spacer);
 
-          const leaf = makeTh(c0.label, colorForLeaf(c0));
+          const { bg: lb, color: lc } = (() => {
+            let b = c0.header_bg, c = c0.header_color;
+            if ((b === 'group' || b === 'GROUP') && c0.group) b = groupColors[c0.group] || '#d9e3f8';
+            if (!b) b = '#0b2557';
+            if (!c) c = (String(b).toLowerCase() === '#0b2557') ? '#ffffff' : '#0b1020';
+            return { bg: b, color: c };
+          })();
+          const leaf = makeTh(c0.label, { bg: lb, color: lc });
           leaf.dataset.key = c0.key;
           colRow.appendChild(leaf);
           i++; continue;
@@ -440,18 +386,16 @@ looker.plugins.visualizations.add({
         groupRow.appendChild(thg);
 
         for (let k = i; k < j; k++) {
-          const leaf = makeTh(resolvedCols[k].label, colorForLeaf(resolvedCols[k]));
-          leaf.dataset.key = resolvedCols[k].key;
+          const c = resolvedCols[k];
+          let b = c.header_bg, ccol = c.header_color;
+          if ((b === 'group' || b === 'GROUP') && c.group) b = groupColors[c.group] || '#d9e3f8';
+          if (!b) b = '#0b2557';
+          if (!ccol) ccol = (String(b).toLowerCase() === '#0b2557') ? '#ffffff' : '#0b1020';
+          const leaf = makeTh(c.label, { bg: b, color: ccol });
+          leaf.dataset.key = c.key;
           colRow.appendChild(leaf);
         }
         i = j;
-      }
-      function colorForLeaf(col) {
-        let bg = col.header_bg, color = col.header_color;
-        if ((bg === 'group' || bg === 'GROUP') && col.group) bg = groupColors[col.group] || '#d9e3f8';
-        if (!bg) bg = '#0b2557';
-        if (!color) color = (String(bg).toLowerCase() === '#0b2557') ? '#ffffff' : '#0b1020';
-        return { bg, color };
       }
 
       groupTable.appendChild(groupRow);
@@ -459,7 +403,6 @@ looker.plugins.visualizations.add({
       this.groupHeaderWrap.appendChild(groupTable);
       this.colHeaderWrap.appendChild(colTable);
 
-      // Body
       const bodyTable = makeTable();
       const tbody = document.createElement('tbody');
       const fmt = (v) => (v == null ? '' : (v.toLocaleString?.() ?? String(v)));
@@ -479,19 +422,30 @@ looker.plugins.visualizations.add({
             td.style.textDecoration = 'underline';
             td.title = `Filter: ${clickFieldName} = ${vFmt ?? vRaw}`;
             td.addEventListener('click', () => {
-              emitFilter(clickFieldName, vRaw, vFmt ?? String(vRaw));
+              const mode = (config.click_filter_value_mode || 'both').toLowerCase();
+              // Explore + Dashboard events
+              const send = (value) => {
+                this.trigger('filter', { field: clickFieldName, value, run: true });
+                this.trigger('dashboard:filter', { field: clickFieldName, value });
+                this.trigger('dashboard:run');
+              };
+              if (mode === 'raw') send(vRaw);
+              else if (mode === 'formatted') send(vFmt ?? String(vRaw));
+              else { send(vRaw); setTimeout(() => send(vFmt ?? String(vRaw)), 0); }
+
               td.style.outline = '2px solid rgba(63,131,248,.6)';
               setTimeout(() => (td.style.outline = ''), 250);
             });
           }
+
           tr.appendChild(td);
         });
         tbody.appendChild(tr);
       });
+
       bodyTable.appendChild(tbody);
       this.scroller.appendChild(bodyTable);
 
-      // Simple width sync
       this._syncWidths = () => {
         const firstRow = tbody.rows[0];
         const colCount = resolvedCols.length;
@@ -512,7 +466,6 @@ looker.plugins.visualizations.add({
           });
         };
         setWidths(colRow);
-        // group row spans; set total width
         let cursor = 0;
         Array.from(groupRow.children).forEach(thg => {
           const span = Number(thg.colSpan || 1);
