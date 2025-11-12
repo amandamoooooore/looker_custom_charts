@@ -255,6 +255,9 @@ looker.plugins.visualizations.add({
         spacing: [10,10,10,10],
         height: element.clientHeight || 360
       },
+      credits: {
+        enabled: false
+      },
       title: { text: null },
       exporting: { enabled: false },
 
