@@ -8,14 +8,17 @@ looker.plugins.visualizations.add({
     // Each: { field, key, label, group?, align?, bold?, heat? }
     columns_json: { type: 'string', label: 'Columns JSON', display: 'text', default: '' },
 
-    // Optional color map for the top group bands: { "Group Name": "#hex" }
+    // Optional color map for top group bands: { "Group Name": "#hex" }
     group_colors_json: { type: 'string', label: 'Group Colors JSON (optional)', display: 'text', default: '' },
 
     // Layout / behavior
     table_height: { type: 'number', label: 'Max table height (px, 0 = auto)', default: 0 },
     center_group_titles: { type: 'boolean', label: 'Center group titles', default: true },
 
-    // Debug helper to list the exact field keys returned by the query
+    // NEW: enable/disable sorting by clicking leaf headers
+    enable_sorting: { type: 'boolean', label: 'Enable sorting (click headers)', default: true },
+
+    // Debug helper to list exact field keys from the query
     debug_fields: { type: 'boolean', label: 'Show field debug header', default: false }
   },
 
@@ -26,6 +29,9 @@ looker.plugins.visualizations.add({
     wrap.style.color = '#1a1f36';
     element.appendChild(wrap);
     this.wrap = wrap;
+
+    // Sort state
+    this.sortState = { key: null, dir: 'asc' }; // dir: 'asc' | 'desc'
   },
 
   updateAsync (data, element, config, queryResponse, details, done) {
@@ -94,19 +100,36 @@ looker.plugins.visualizations.add({
     });
 
     // ---------- Extract row values
-    const getVal = (row, key) => key && row[key] ? row[key].value : null;
-    const rows = data.map(r => {
+    const rawVal = (row, key) => key && row[key] ? row[key].value : null;
+    let rows = data.map(r => {
       const obj = {};
-      resolvedCols.forEach(c => { obj[c.key] = getVal(r, c._rowKey); });
+      resolvedCols.forEach(c => { obj[c.key] = rawVal(r, c._rowKey); });
       return obj;
     });
+
+    // ---------- Precompute heatmap scales BEFORE sorting (stable scales)
+    const heatCols = resolvedCols.filter(c => c.heat);
+    const mins = {}, maxs = {};
+    heatCols.forEach(c => {
+      const vals = rows.map(r => Number(parseForSort(r[c.key]))).filter(Number.isFinite);
+      if (vals.length) { mins[c.key] = Math.min(...vals); maxs[c.key] = Math.max(...vals); }
+    });
+    const shade = (key, v) => {
+      const n = Number(parseForSort(v));
+      if (!Number.isFinite(n)) return '';
+      const min = mins[key], max = maxs[key];
+      if (max == null || min == null) return '';
+      if (max === min) return 'rgba(63,131,248,0.15)';
+      const t = (n - min) / (max - min);
+      return `rgba(63,131,248,${0.12 + 0.28*t})`;
+    };
 
     // ---------- Container / scroll
     const scroller = document.createElement('div');
     scroller.style.overflow = 'auto';
     if (Number(config.table_height) > 0) scroller.style.maxHeight = `${config.table_height}px`;
 
-    // Create the table ONCE
+    // Create the table
     const table = document.createElement('table');
     table.style.width = '100%';
     table.style.borderCollapse = 'separate';
@@ -135,22 +158,27 @@ looker.plugins.visualizations.add({
 
     // ---------- Build header (two rows; ALL labels in row 2)
     const thead = document.createElement('thead');
-    const r1 = document.createElement('tr');
-    const r2 = document.createElement('tr');
+    const r1 = document.createElement('tr'); // group row
+    const r2 = document.createElement('tr'); // leaf headers row
+
+    // keep references to leaf THs for sorting icons/handlers
+    const leafThByKey = {};
 
     let i = 0;
     while (i < resolvedCols.length) {
       const g = resolvedCols[i].group;
 
       if (!g) {
-        // Spacer in the top row to keep heights consistent
+        // Spacer in top row to line up with grouped sections
         const spacer = makeTh('', { align: 'left' });
         spacer.style.borderBottom = 'none';
         r1.appendChild(spacer);
 
-        // Actual label in second row
+        // Actual leaf header goes to row 2
         const th = makeTh(resolvedCols[i].label, { align: 'left' });
+        th.dataset.key = resolvedCols[i].key;
         r2.appendChild(th);
+        leafThByKey[resolvedCols[i].key] = th;
 
         i++;
         continue;
@@ -166,7 +194,9 @@ looker.plugins.visualizations.add({
 
       for (let k = i; k < j; k++) {
         const th = makeTh(resolvedCols[k].label, { align: 'left' });
+        th.dataset.key = resolvedCols[k].key;
         r2.appendChild(th);
+        leafThByKey[resolvedCols[k].key] = th;
       }
       i = j;
     }
@@ -174,53 +204,122 @@ looker.plugins.visualizations.add({
     thead.appendChild(r1);
     thead.appendChild(r2);
 
-    // ---------- Body (heatmap per-column if "heat": true)
+    // ---------- Body
     const tbody = document.createElement('tbody');
 
-    const heatCols = resolvedCols.filter(c => c.heat);
-    const mins = {}, maxs = {};
-    heatCols.forEach(c => {
-      const vals = rows.map(r => Number(r[c.key])).filter(Number.isFinite);
-      if (vals.length) { mins[c.key] = Math.min(...vals); maxs[c.key] = Math.max(...vals); }
-    });
-    const shade = (key, v) => {
-      if (!Number.isFinite(v)) return '';
-      const min = mins[key], max = maxs[key];
-      if (max === min) return 'rgba(63,131,248,0.15)';
-      const t = (v - min) / (max - min);
-      return `rgba(63,131,248,${0.12 + 0.28*t})`;
-    };
+    // Rendering helpers
+    const fmt = v => (v == null ? '' : (v.toLocaleString?.() ?? String(v)));
 
-    if (unresolved.length > 0) {
-      const trWarn = document.createElement('tr');
-      const tdWarn = document.createElement('td');
-      tdWarn.colSpan = resolvedCols.length;
-      tdWarn.style.padding = '10px';
-      tdWarn.style.background = '#fff8e1';
-      tdWarn.style.borderBottom = '1px solid #ffe08a';
-      tdWarn.innerHTML = `⚠️ Unresolved fields: ${unresolved.map(u => `<code>${u.field}</code>`).join(', ')}. Use fully-qualified names (e.g., <code>view.field</code>) or toggle “Show field debug header”.`;
-      trWarn.appendChild(tdWarn);
-      tbody.appendChild(trWarn);
+    function renderBody(sortedRows) {
+      tbody.innerHTML = '';
+      if (unresolved.length > 0) {
+        const trWarn = document.createElement('tr');
+        const tdWarn = document.createElement('td');
+        tdWarn.colSpan = resolvedCols.length;
+        tdWarn.style.padding = '10px';
+        tdWarn.style.background = '#fff8e1';
+        tdWarn.style.borderBottom = '1px solid #ffe08a';
+        tdWarn.innerHTML = `⚠️ Unresolved fields: ${unresolved.map(u => `<code>${u.field}</code>`).join(', ')}. Check field names.`;
+        trWarn.appendChild(tdWarn);
+        tbody.appendChild(trWarn);
+      }
+
+      sortedRows.forEach(r => {
+        const tr = document.createElement('tr');
+        resolvedCols.forEach(c => {
+          const td = document.createElement('td');
+          const v = r[c.key];
+          td.textContent = fmt(v);
+          td.style.padding = '10px';
+          td.style.borderBottom = '1px solid #eef1f6';
+          td.style.textAlign = c.align || 'left';
+          td.style.fontWeight = c.bold ? '700' : '400';
+          td.style.whiteSpace = 'nowrap';
+          td.style.overflow = 'hidden';
+          td.style.textOverflow = 'ellipsis';
+          if (c.heat) td.style.background = shade(c.key, v);
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
     }
 
-    rows.forEach(r => {
-      const tr = document.createElement('tr');
-      resolvedCols.forEach(c => {
-        const td = document.createElement('td');
-        const v = r[c.key];
-        td.textContent = v == null ? '' : (v.toLocaleString?.() ?? String(v));
-        td.style.padding = '10px';
-        td.style.borderBottom = '1px solid #eef1f6';
-        td.style.textAlign = c.align || 'left';
-        td.style.fontWeight = c.bold ? '700' : '400';
-        td.style.whiteSpace = 'nowrap';
-        td.style.overflow = 'hidden';
-        td.style.textOverflow = 'ellipsis';
-        if (c.heat) td.style.background = shade(c.key, Number(v));
-        tr.appendChild(td);
+    // ---------- Sorting utilities
+    function parseForSort(v) {
+      if (v == null) return null;
+      if (typeof v === 'number') return v;
+      if (typeof v === 'boolean') return v ? 1 : 0;
+      // Try numeric parse (strip currency/commas/%)
+      const s = String(v).trim().replace(/[, ]+/g, '').replace(/[%£$€]/g, '');
+      const num = Number(s);
+      if (!Number.isNaN(num)) return num;
+      return String(v).toLowerCase();
+    }
+
+    const sortRows = (rowsInput, key, dir) => {
+      const copy = rowsInput.slice();
+      copy.sort((a, b) => {
+        const va = parseForSort(a[key]);
+        const vb = parseForSort(b[key]);
+        // nulls last
+        const na = (va === null || va === undefined || va === '');
+        const nb = (vb === null || vb === undefined || vb === '');
+        if (na && nb) return 0;
+        if (na) return 1;
+        if (nb) return -1;
+        // compare numbers or strings
+        if (typeof va === 'number' && typeof vb === 'number') {
+          return dir === 'asc' ? va - vb : vb - va;
+        }
+        return dir === 'asc'
+          ? String(va).localeCompare(String(vb))
+          : String(vb).localeCompare(String(va));
       });
-      tbody.appendChild(tr);
-    });
+      return copy;
+    };
+
+    // Render header sort indicators & bind handlers
+    const clearIndicators = () => {
+      Object.values(leafThByKey).forEach(th => {
+        th.style.cursor = config.enable_sorting ? 'pointer' : 'default';
+        th.title = config.enable_sorting ? 'Click to sort' : '';
+        th.innerText = th.innerText.replace(/\s*[▲▼]$/, ''); // remove trailing indicator if any
+      });
+    };
+
+    const applyIndicator = () => {
+      if (!this.sortState.key) return;
+      const th = leafThByKey[this.sortState.key];
+      if (!th) return;
+      th.innerText = `${th.innerText.replace(/\s*[▲▼]$/, '')} ${this.sortState.dir === 'asc' ? '▲' : '▼'}`;
+    };
+
+    if (config.enable_sorting) {
+      Object.entries(leafThByKey).forEach(([key, th]) => {
+        th.style.cursor = 'pointer';
+        th.title = 'Click to sort';
+        th.addEventListener('click', () => {
+          if (this.sortState.key === key) {
+            this.sortState.dir = this.sortState.dir === 'asc' ? 'desc' : 'asc';
+          } else {
+            this.sortState.key = key;
+            this.sortState.dir = 'asc';
+          }
+          clearIndicators();
+          applyIndicator();
+          const sorted = this.sortState.key ? sortRows(rows, this.sortState.key, this.sortState.dir) : rows;
+          renderBody(sorted);
+        });
+      });
+    }
+
+    // Initial render (respect sort state if already set)
+    clearIndicators();
+    if (config.enable_sorting && this.sortState.key) applyIndicator();
+    const initialRows = (config.enable_sorting && this.sortState.key)
+      ? sortRows(rows, this.sortState.key, this.sortState.dir)
+      : rows;
+    renderBody(initialRows);
 
     // ---------- Assemble
     table.appendChild(thead);
