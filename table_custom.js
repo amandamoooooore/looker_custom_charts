@@ -6,37 +6,15 @@ looker.plugins.visualizations.add({
       type: 'string',
       label: 'Columns JSON',
       display: 'textarea',
-      default: JSON.stringify([
-        // Static columns (no group)
-        { field: 'make',       key: 'make',        label: 'Make',        align: 'left'  },
-        { field: 'model',      key: 'model',       label: 'Model',       align: 'left'  },
-        { field: 'body_type',  key: 'body_type',   label: 'Body',        align: 'left'  },
-        { field: 'fuel_type',  key: 'fuel_type',   label: 'Fuel',        align: 'left'  },
-
-        // Group: Activity on the Advert
-        { field: 'ad_views',       key: 'ad_views',       label: 'Ad Views',        group: 'Activity on the Advert', heat: true, align: 'right' },
-        { field: 'interactions',   key: 'interactions',   label: 'Interactions',    group: 'Activity on the Advert', heat: true, align: 'right' },
-        { field: 'total_activity', key: 'total_activity', label: 'Total Activity',  group: 'Activity on the Advert', heat: true, align: 'right' },
-
-        // Group: Time on the Advert
-        { field: 'total_time_on_ad', key: 'total_time_on_ad', label: 'Total Time on Ad',   group: 'Time on the Advert', align: 'right' },
-        { field: 'avg_time_on_ad',   key: 'avg_time_on_ad',   label: 'Average Time on Ad', group: 'Time on the Advert', align: 'right' },
-
-        // Group: Combined Engagement
-        { field: 'total_engagement', key: 'total_engagement', label: 'Total Engagement', group: 'Combined Engagement', bold: true, align: 'right' }
-      ], null, 2)
+      default: ''
     },
     group_colors_json: {
       type: 'string',
       label: 'Group Colors JSON (optional)',
       display: 'textarea',
-      default: JSON.stringify({
-        'Activity on the Advert': '#3f83f8',
-        'Time on the Advert': '#f2b01e',
-        'Combined Engagement': '#38a169'
-      }, null, 2)
+      default: ' '
     },
-    showHeatmap: { type: 'boolean', label: 'Heatmap activity columns', default: true },
+    showHeatmap: { type: 'boolean', label: 'Heatmap activity columns', default: false },
     table_height: { type: 'number', label: 'Max table height (px, 0 = auto)', default: 0 }
   },
 
