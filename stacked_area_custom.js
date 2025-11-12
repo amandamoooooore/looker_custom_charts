@@ -319,7 +319,7 @@ looker.plugins.visualizations.add({
           }
           return wrap(`<b>${this.series.name}</b><br/>${this.x}: <b>${Highcharts.numberFormat(this.y, 4)}</b>`);
         }
-      }
+      },
 
       series
     });
