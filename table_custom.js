@@ -1,271 +1,180 @@
-// -----------------------------------------------------------------------------
-// Grouped Header Grid (Fixed Header, Synced Widths, Sorting, Click-to-Filter)
-// - Two fixed header rows (no movement) + horizontal scroll sync
-// - Column widths synced between header & body (measure body → apply to header)
-// - Dynamic Columns JSON (grouping, header_bg/header_color, align, bold, heat)
-// - Group colors JSON; header_bg: "group" inherits group color
-// - Column labels centered; group titles optionally centered
-// - Sorting (toggle) + default sort column/direction
-// - Click-to-filter works in BOTH Explore and Dashboards
-// -----------------------------------------------------------------------------
+// HC
+
 looker.plugins.visualizations.add({
-  id: 'grouped_header_grid_fixedheader',
-  label: 'Grouped Header Grid (Fixed Header)',
+  id: 'hc_grouped_grid',
+  label: 'Highcharts Grid — Grouped Header',
 
   options: {
-    // Columns JSON: [{ field, key, label, group?, align?, bold?, heat?, header_bg?, header_color? }, ...]
+    // Data/columns
     columns_json: { type: 'string', label: 'Columns JSON', display: 'text', default: '' },
-    // Group Colors JSON: { "Group Name": "#hex" }
+    // Example item: { field:"view.dim", key:"make", label:"Make", group:"Vehicle", align:"center", bold:true, width:120, header_bg:"group", header_color:"#fff" }
     group_colors_json: { type: 'string', label: 'Group Colors JSON (optional)', display: 'text', default: '' },
 
-    // Layout
-    table_height: { type: 'number', label: 'Max table height (px, 0 = auto)', default: 450 },
+    // Layout & style
+    table_height: { type: 'number', label: 'Max table height (px, 0=auto)', default: 450 },
     center_group_titles: { type: 'boolean', label: 'Center group titles', default: true },
 
     // Sorting
-    enable_sorting: { type: 'boolean', label: 'Enable sorting (click headers)', default: true },
+    enable_sorting: { type: 'boolean', label: 'Enable sorting (header click)', default: true },
     default_sort_column: { type: 'string', label: 'Default sort column (key or label)', display: 'text', default: '' },
     default_sort_direction: { type: 'string', label: 'Default sort direction (asc/desc)', display: 'text', default: 'asc' },
 
     // Click-to-filter
     enable_click_filter: { type: 'boolean', label: 'Enable click-to-filter', default: true },
     click_filter_column: { type: 'string', label: 'Click filter column (key or label)', display: 'text', default: '' },
-    click_filter_field:   { type: 'string', label: 'Click filter field (optional Looker field)', display: 'text', default: '' }
+    click_filter_field: { type: 'string', label: 'Click filter field (fully qualified Looker field)', display: 'text', default: '' },
+    click_filter_value_mode: {
+      type: 'string',
+      label: 'Filter value mode (Explore)',
+      display: 'select',
+      values: [
+        {'Both (raw then formatted)': 'both'},
+        {'Raw only': 'raw'},
+        {'Formatted only': 'formatted'}
+      ],
+      default: 'both'
+    },
+
+    // Safety switch: try Highcharts Grid first; if blocked, fallback to internal table
+    prefer_highcharts_grid: { type: 'boolean', label: 'Prefer Highcharts Grid', default: true }
   },
 
   create (element) {
-    // Root container
+    // Root
     const root = document.createElement('div');
     root.style.position = 'relative';
-    root.style.fontFamily = 'Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
-    root.style.fontSize = '13px';
-    root.style.color = '#1a1f36';
     root.style.width = '100%';
-    root.style.display = 'flex';
-    root.style.flexDirection = 'column';
+    root.style.height = '100%';
+    root.style.fontFamily = 'Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
     element.appendChild(root);
     this.root = root;
 
-    // Fixed header wrappers
+    // Containers
+    const hcContainer = document.createElement('div');
+    hcContainer.id = 'hcgrid-' + Math.random().toString(36).slice(2);
+    hcContainer.style.width = '100%';
+    hcContainer.style.height = '100%';
+    this.root.appendChild(hcContainer);
+    this.hcContainer = hcContainer;
+
+    const fallbackWrap = document.createElement('div');
+    fallbackWrap.style.display = 'none';
+    fallbackWrap.style.width = '100%';
+    fallbackWrap.style.height = '100%';
+    this.root.appendChild(fallbackWrap);
+    this.fallbackWrap = fallbackWrap;
+
+    // For fallback headers/body
     const groupHeaderWrap = document.createElement('div');
-    groupHeaderWrap.style.position = 'sticky';
-    groupHeaderWrap.style.top = '0';
-    groupHeaderWrap.style.zIndex = '10';
-    groupHeaderWrap.style.background = '#fff';
-    groupHeaderWrap.style.overflow = 'hidden';
-    this.root.appendChild(groupHeaderWrap);
-    this.groupHeaderWrap = groupHeaderWrap;
-
     const colHeaderWrap = document.createElement('div');
-    colHeaderWrap.style.position = 'sticky';
-    colHeaderWrap.style.top = '44px'; // sits under group row
-    colHeaderWrap.style.zIndex = '9';
-    colHeaderWrap.style.background = '#fff';
-    colHeaderWrap.style.overflow = 'hidden';
-    this.root.appendChild(colHeaderWrap);
-    this.colHeaderWrap = colHeaderWrap;
-
-    // Scrollable body
     const scroller = document.createElement('div');
+    [groupHeaderWrap, colHeaderWrap].forEach(w => {
+      w.style.position = 'sticky';
+      w.style.zIndex = '10';
+      w.style.background = '#fff';
+      w.style.overflow = 'hidden';
+    });
+    groupHeaderWrap.style.top = '0';
+    colHeaderWrap.style.top = '44px';
     scroller.style.overflow = 'auto';
     scroller.style.position = 'relative';
     scroller.style.width = '100%';
     scroller.style.flex = '1 1 auto';
-    this.root.appendChild(scroller);
+    scroller.style.maxHeight = '450px'; // default; overridden by config
+    fallbackWrap.appendChild(groupHeaderWrap);
+    fallbackWrap.appendChild(colHeaderWrap);
+    fallbackWrap.appendChild(scroller);
+
+    this.groupHeaderWrap = groupHeaderWrap;
+    this.colHeaderWrap = colHeaderWrap;
     this.scroller = scroller;
 
-    // State
-    this.sortState = { key: null, dir: 'asc' };
+    // Loader util
+    this._loadScript = (src) => new Promise((resolve, reject) => {
+      // avoid duplicate script loads
+      if (document.querySelector(`script[src="${src}"]`)) return resolve();
+      const s = document.createElement('script');
+      s.src = src;
+      s.async = true;
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error('Failed to load ' + src));
+      document.head.appendChild(s);
+    });
+    this._loadCSS = (href) => new Promise((resolve, reject) => {
+      if (document.querySelector(`link[href="${href}"]`)) return resolve();
+      const l = document.createElement('link');
+      l.rel = 'stylesheet';
+      l.href = href;
+      l.onload = () => resolve();
+      l.onerror = () => reject(new Error('Failed to load ' + href));
+      document.head.appendChild(l);
+    });
 
-    // Recalc widths on resize
+    // Observe resize for fallback width sync
     this._resizeObserver = new ResizeObserver(() => this._syncWidths && this._syncWidths());
     this._resizeObserver.observe(scroller);
   },
 
-  updateAsync (data, element, config, queryResponse, details, done) {
-    // Wipe
+  async updateAsync (data, element, config, queryResponse, details, done) {
+    // Reset containers
+    this.hcContainer.innerHTML = '';
+    this.fallbackWrap.style.display = 'none';
+    this.hcContainer.style.display = 'block';
     this.groupHeaderWrap.innerHTML = '';
     this.colHeaderWrap.innerHTML = '';
     this.scroller.innerHTML = '';
 
-    // Helpers
+    // Parse config
     const parseJSON = (txt, fb) => { try { return JSON.parse(txt || ''); } catch { return fb; } };
     const cols = parseJSON(config.columns_json, []);
     const groupColors = parseJSON(config.group_colors_json, {});
     if (!Array.isArray(cols) || cols.length === 0) {
-      const msg = document.createElement('div');
-      msg.style.padding = '16px';
-      msg.innerHTML = '<b>Columns not configured</b>';
-      this.scroller.appendChild(msg); done(); return;
+      this.hcContainer.innerHTML = '<div style="padding:12px"><b>Columns not configured</b></div>';
+      done(); return;
     }
     if (Number(config.table_height) > 0) this.scroller.style.maxHeight = `${config.table_height}px`;
 
-    // Field resolution
+    // Resolve fields
     const allFieldDefs = [
       ...(queryResponse.fields?.dimension_like || []),
       ...(queryResponse.fields?.measure_like || []),
       ...(queryResponse.fields?.table_calculations || [])
     ];
-    const fieldKeys = allFieldDefs.map(f => f.name);
-    const shortToFull = {}; const labelToFull = {};
+    const fieldByName = {};
+    const labelToName = {};
+    const shortToName = {};
     allFieldDefs.forEach(f => {
-      const short = f.name.split('.').pop();
-      if (!shortToFull[short]) shortToFull[short] = f.name;
-      if (f.label_short) labelToFull[String(f.label_short).toLowerCase()] = f.name;
+      fieldByName[f.name] = f;
+      if (f.label_short) labelToName[String(f.label_short).toLowerCase()] = f.name;
+      shortToName[f.name.split('.').pop()] = f.name;
     });
     const resolveField = (s) => {
       if (!s) return null;
-      if (fieldKeys.includes(s)) return s;
-      const end = fieldKeys.find(k => k.endsWith('.' + s)); if (end) return end;
-      const lab = labelToFull[String(s).toLowerCase()]; if (lab) return lab;
-      if (shortToFull[s]) return shortToFull[s];
+      if (fieldByName[s]) return s;
+      const end = Object.keys(fieldByName).find(n => n.endsWith('.' + s));
+      if (end) return end;
+      const byLabel = labelToName[String(s).toLowerCase()];
+      if (byLabel) return byLabel;
+      if (shortToName[s]) return shortToName[s];
       return null;
     };
 
-    const unresolved = [];
-    const resolvedCols = cols.map(c => {
-      const rk = resolveField(c.field);
-      if (!rk) unresolved.push(c);
-      return { ...c, _rowKey: rk };
-    });
+    const resolvedCols = cols.map(c => ({ ...c, _rowKey: resolveField(c.field) }));
 
-    // Data extraction (use raw values for sorting & filtering)
+    // Build row set (raw + formatted side-by-side)
     const rawVal = (row, key) => key && row[key] ? row[key].value : null;
-    let rows = data.map(r => {
-      const o = {}; resolvedCols.forEach(c => o[c.key] = rawVal(r, c._rowKey)); return o;
+    const fmtVal = (row, key) => key && row[key] ? (row[key].rendered ?? row[key].value) : null;
+
+    const rows = data.map(r => {
+      const out = {};
+      resolvedCols.forEach(c => {
+        out[c.key] = rawVal(r, c._rowKey);
+        out['__fmt__' + c.key] = fmtVal(r, c._rowKey);
+      });
+      return out;
     });
 
-    // Parsing for sort / heat
-    const parseForSort = (v) => {
-      if (v == null) return null;
-      if (typeof v === 'number') return v;
-      if (typeof v === 'boolean') return v ? 1 : 0;
-      const s = String(v).trim().replace(/[, ]+/g, '').replace(/[%£$€]/g, '');
-      const n = Number(s);
-      return Number.isNaN(n) ? String(v).toLowerCase() : n;
-    };
-
-    // Heatmap scales
-    const heatCols = resolvedCols.filter(c => c.heat);
-    const mins = {}, maxs = {};
-    heatCols.forEach(c => {
-      const vs = rows.map(r => Number(parseForSort(r[c.key]))).filter(Number.isFinite);
-      if (vs.length) { mins[c.key] = Math.min(...vs); maxs[c.key] = Math.max(...vs); }
-    });
-    const shade = (key, v) => {
-      const n = Number(parseForSort(v));
-      if (!Number.isFinite(n)) return '';
-      const min = mins[key], max = maxs[key];
-      if (max == null || min == null) return '';
-      if (max === min) return 'rgba(63,131,248,0.15)';
-      const t = (n - min) / (max - min);
-      return `rgba(63,131,248,${0.12 + 0.28*t})`;
-    };
-
-    // Header colors (supports header_bg: "group")
-    const resolveLeafHeaderColors = (col, groupColors) => {
-      let bg = col.header_bg;
-      let color = col.header_color;
-      if ((bg === 'group' || bg === 'GROUP') && col.group) {
-        const gcol = groupColors[col.group];
-        bg = gcol || '#d9e3f8';
-      }
-      if (!bg) bg = '#0b2557';
-      if (!color) color = (bg.toLowerCase() === '#0b2557') ? '#ffffff' : '#0b1020';
-      return { bg, color };
-    };
-
-    // Factories
-    const makeTable = () => {
-      const t = document.createElement('table');
-      t.style.width = '100%';
-      t.style.borderCollapse = 'separate';
-      t.style.borderSpacing = '0';
-      t.style.tableLayout = 'fixed';
-      return t;
-    };
-    const makeTh = (txt, opts = {}) => {
-      const th = document.createElement('th');
-      th.textContent = txt;
-      th.style.padding = '12px 10px';
-      th.style.fontWeight = opts.bold ? '700' : '600';
-      th.style.fontSize = '13px';
-      th.style.textAlign = 'center'; // center column labels
-      th.style.borderBottom = '1px solid #e6e8ee';
-      th.style.background = opts.bg ?? '#0b2557';
-      th.style.color = opts.color ?? (opts.bg === '#0b2557' ? '#ffffff' : '#0b1020');
-      th.style.whiteSpace = 'nowrap';
-      th.style.verticalAlign = 'middle';
-      th.style.height = '44px';
-      th.style.boxSizing = 'border-box';
-      if (opts.isGroup && config.center_group_titles) th.style.textAlign = 'center';
-      return th;
-    };
-    const makeTd = () => {
-      const td = document.createElement('td');
-      td.style.padding = '10px';
-      td.style.borderBottom = '1px solid #eef1f6';
-      td.style.whiteSpace = 'nowrap';
-      td.style.overflow = 'hidden';
-      td.style.textOverflow = 'ellipsis';
-      td.style.boxSizing = 'border-box';
-      return td;
-    };
-
-    // ---------------- Header tables ----------------
-    const groupTable = makeTable();
-    const groupRow  = document.createElement('tr');
-
-    const colTable  = makeTable();
-    const colRow    = document.createElement('tr');
-    const leafThByKey = {};
-
-    let i = 0;
-    while (i < resolvedCols.length) {
-      const first = resolvedCols[i];
-      const g = first.group;
-
-      if (!g) {
-        // Spacer above ungrouped column should match that column's header bg
-        const { bg: leafBg } = resolveLeafHeaderColors(first, groupColors);
-        const spacer = makeTh('', { isGroup: true, bg: leafBg, color: '#fff' });
-        spacer.style.borderBottom = 'none';
-        groupRow.appendChild(spacer);
-
-        const { bg, color } = resolveLeafHeaderColors(first, groupColors);
-        const th = makeTh(first.label, { bg, color });
-        th.dataset.key = first.key;
-        colRow.appendChild(th);
-        leafThByKey[first.key] = th;
-
-        i++; continue;
-      }
-
-      let j = i; while (j < resolvedCols.length && resolvedCols[j].group === g) j++;
-      const thg = makeTh(g, { bg: groupColors[g] || '#d9e3f8', color: '#0b1020', isGroup: true });
-      thg.colSpan = j - i;
-      groupRow.appendChild(thg);
-
-      for (let k = i; k < j; k++) {
-        const col = resolvedCols[k];
-        const { bg, color } = resolveLeafHeaderColors(col, groupColors);
-        const th = makeTh(col.label, { bg, color });
-        th.dataset.key = col.key;
-        colRow.appendChild(th);
-        leafThByKey[col.key] = th;
-      }
-      i = j;
-    }
-    groupTable.appendChild(groupRow);
-    colTable.appendChild(colRow);
-    this.groupHeaderWrap.appendChild(groupTable);
-    this.colHeaderWrap.appendChild(colTable);
-
-    // ---------------- Body table ----------------
-    const bodyTable = makeTable();
-    const tbody = document.createElement('tbody');
-    const fmt = v => (v == null ? '' : (v.toLocaleString?.() ?? String(v)));
-
+    // Locate click-to-filter target
     const findKeyByLabelOrKey = (val) => {
       if (!val) return null;
       const low = String(val).toLowerCase();
@@ -274,8 +183,6 @@ looker.plugins.visualizations.add({
       const byLabel = resolvedCols.find(c => String(c.label).toLowerCase() === low);
       return byLabel ? byLabel.key : null;
     };
-
-    // Click-to-filter column & field
     const clickKey = config.enable_click_filter ? (findKeyByLabelOrKey(config.click_filter_column) || null) : null;
     const clickFieldFallback = (() => {
       if (!clickKey) return null;
@@ -284,150 +191,346 @@ looker.plugins.visualizations.add({
     })();
     const clickFieldName = (config.click_filter_field || clickFieldFallback || '').trim();
 
-    // Emit filter for BOTH Explore and Dashboards
-    const emitFilter = (field, value) => {
-      const payload = { field, value };
-      // Explore: add chip + run
-      this.trigger('filter', { ...payload, run: true });
-      // Dashboards: mapped tiles
-      this.trigger('dashboard:filter', payload);
-      // Some dashboards require explicit run
-      this.trigger('dashboard:run');
-      // Debug
-      try { console.log('[Grouped Grid] filter click →', payload); } catch (e) {}
+    // Emit filter (Explore + Dashboards)
+    const emitFilter = (field, raw, formatted) => {
+      const mode = (config.click_filter_value_mode || 'both').toLowerCase();
+      const send = (value) => {
+        this.trigger('filter', { field, value, run: true });       // Explore
+        this.trigger('dashboard:filter', { field, value });         // Dashboards
+        this.trigger('dashboard:run');
+      };
+      if (mode === 'raw') send(raw);
+      else if (mode === 'formatted') send(formatted);
+      else { send(raw); setTimeout(() => send(formatted), 0); }
+      try { console.log('[HC Grid] filter click →', { field, raw, formatted, mode }); } catch (e) {}
     };
 
-    const renderBody = (rowsIn) => {
-      tbody.innerHTML = '';
-      rowsIn.forEach(r => {
+    // ---- Try to render with Highcharts Grid ----
+    const wantHC = config.prefer_highcharts_grid !== false;
+    let renderedWithHC = false;
+
+    if (wantHC) {
+      try {
+        // Load Grid Lite (official docs recommend jsDelivr)
+        // JS + CSS are safe to include multiple times (we guard above)
+        await this._loadCSS('https://cdn.jsdelivr.net/npm/@highcharts/grid-lite/css/grid-lite.css');
+        await this._loadScript('https://cdn.jsdelivr.net/npm/@highcharts/grid-lite/grid-lite.js');
+
+        if (typeof Grid === 'undefined' || !Grid.grid) {
+          throw new Error('Highcharts Grid not available globally');
+        }
+
+        // Build Grid columns config & header rows
+        // 1) DataTable: columns -> arrays
+        const dataTable = { columns: {} };
+        resolvedCols.forEach(c => {
+          dataTable.columns[c.key] = rows.map(r => r[c.key]);
+        });
+
+        // 2) Column defs: id, width, alignment, sorting
+        const defaultSortable = !!config.enable_sorting;
+        const dir = String(config.default_sort_direction || 'asc').toLowerCase() === 'desc' ? 'desc' : 'asc';
+        const defKey = findKeyByLabelOrKey(config.default_sort_column);
+
+        const columns = resolvedCols.map(c => {
+          const width = (c.width != null) ? c.width : undefined;
+          const align = (c.align || 'left');
+          const { bg, color } = (() => {
+            let bg = c.header_bg, color = c.header_color;
+            if ((bg === 'group' || bg === 'GROUP') && c.group) bg = groupColors[c.group] || '#d9e3f8';
+            if (!bg) bg = '#0b2557';
+            if (!color) color = (String(bg).toLowerCase() === '#0b2557') ? '#ffffff' : '#0b1020';
+            return { bg, color };
+          })();
+
+          return {
+            id: c.key,
+            width,
+            header: {
+              format: c.label,
+              className: `hc-col-${c.key}`,
+              style: { // Grid will map inline styles
+                background: bg,
+                color: color,
+                textAlign: 'center'
+              }
+            },
+            cells: {
+              className: `hc-cell-${c.key}`,
+              style: { textAlign: align, fontWeight: c.bold ? '700' : '400' }
+            },
+            sorting: {
+              sortable: defaultSortable,
+              order: (defKey && defKey === c.key) ? dir : undefined
+            }
+          };
+        });
+
+        // 3) Grouped header rows: one row of groups, one row of leaf labels
+        // Grid supports multi-row headers; we create top row with colSpans
+        const headerRows = [];
+        // top row
+        const topCells = [];
+        let i = 0;
+        while (i < resolvedCols.length) {
+          const start = resolvedCols[i];
+          const groupName = start.group;
+          if (!groupName) {
+            // Ungrouped — use the same background as its leaf header
+            const leafCol = columns.find(cc => cc.id === start.key);
+            topCells.push({
+              colSpan: 1,
+              format: '',
+              style: { background: leafCol.header.style.background, borderBottom: 'none' }
+            });
+            i++;
+            continue;
+          }
+          let j = i + 1;
+          while (j < resolvedCols.length && resolvedCols[j].group === groupName) j++;
+          const span = j - i;
+          topCells.push({
+            colSpan: span,
+            format: groupName,
+            style: {
+              background: groupColors[groupName] || '#d9e3f8',
+              color: '#0b1020',
+              textAlign: config.center_group_titles ? 'center' : 'left',
+              fontWeight: 600
+            }
+          });
+          i = j;
+        }
+        headerRows.push({ cells: topCells });
+
+        // leaf row is auto from columns.header.format
+
+        // 4) Build grid options
+        const gridOptions = {
+          dataTable,
+          columnDefaults: {
+            header: { style: { textAlign: 'center', verticalAlign: 'middle', height: '44px' } },
+            cells: { style: { height: '36px' } },
+            sorting: { sortable: defaultSortable }
+          },
+          columns,
+          header: { rows: headerRows },
+          // Size
+          renderTo: this.hcContainer.id,
+          // Scrolling height
+          scroll: {
+            // Grid auto-sizes; use container height to limit
+          }
+        };
+
+        // Render
+        this.hcContainer.style.maxHeight = (Number(config.table_height) > 0) ? `${config.table_height}px` : 'inherit';
+        const grid = Grid.grid(this.hcContainer.id, gridOptions);
+
+        // Click-to-filter via DOM delegation (Grid Lite has limited events; safe approach)
+        if (config.enable_click_filter && clickKey && clickFieldName) {
+          this.hcContainer.addEventListener('click', (ev) => {
+            const cell = ev.target.closest('td,th');
+            if (!cell) return;
+            // Find column id by class
+            const match = Array.from(cell.classList).find(cn => cn.startsWith('hc-cell-'));
+            if (!match) return;
+            const colId = match.replace('hc-cell-', '');
+            if (colId !== clickKey) return;
+
+            // Row index by nearest TR
+            const tr = ev.target.closest('tr');
+            if (!tr) return;
+            const rowIndexAttr = tr.getAttribute('data-row-index');
+            // If Grid doesn't expose row index attribute, fallback by computing from position
+            let rowIndex = rowIndexAttr ? Number(rowIndexAttr) : Array.from(tr.parentElement.children).indexOf(tr);
+            if (rowIndex < 0) return;
+
+            const raw = rows[rowIndex]?.[clickKey];
+            const formatted = rows[rowIndex]?.['__fmt__' + clickKey] ?? String(raw);
+            if (raw == null || raw === '') return;
+
+            emitFilter(clickFieldName, raw, formatted);
+            // subtle feedback
+            cell.style.outline = '2px solid rgba(63,131,248,.6)';
+            setTimeout(() => (cell.style.outline = ''), 250);
+          });
+        }
+
+        renderedWithHC = true;
+      } catch (e) {
+        console.warn('[HC Grid] Falling back to internal table:', e?.message || e);
+        renderedWithHC = false;
+      }
+    }
+
+    // ---- Fallback renderer (previous HTML table engine) ----
+    if (!renderedWithHC) {
+      this.hcContainer.style.display = 'none';
+      this.fallbackWrap.style.display = 'flex';
+      this.fallbackWrap.style.flexDirection = 'column';
+
+      // Build quick helpers
+      const makeTable = () => {
+        const t = document.createElement('table');
+        t.style.borderCollapse = 'separate';
+        t.style.borderSpacing = '0';
+        t.style.tableLayout = 'fixed';
+        return t;
+      };
+      const makeTh = (txt, opts = {}) => {
+        const th = document.createElement('th');
+        th.textContent = txt;
+        th.style.padding = '12px 10px';
+        th.style.fontWeight = opts.bold ? '700' : '600';
+        th.style.fontSize = '13px';
+        th.style.textAlign = 'center';
+        th.style.borderBottom = '1px solid #e6e8ee';
+        th.style.background = opts.bg ?? '#0b2557';
+        th.style.color = opts.color ?? (opts.bg === '#0b2557' ? '#ffffff' : '#0b1020');
+        th.style.whiteSpace = 'nowrap';
+        th.style.verticalAlign = 'middle';
+        th.style.height = '44px';
+        th.style.boxSizing = 'border-box';
+        return th;
+      };
+      const makeTd = () => {
+        const td = document.createElement('td');
+        td.style.padding = '10px';
+        td.style.borderBottom = '1px solid #eef1f6';
+        td.style.whiteSpace = 'nowrap';
+        td.style.overflow = 'hidden';
+        td.style.textOverflow = 'ellipsis';
+        td.style.boxSizing = 'border-box';
+        return td;
+      };
+
+      // Header tables
+      const groupTable = makeTable();
+      const groupRow = document.createElement('tr');
+      const colTable = makeTable();
+      const colRow = document.createElement('tr');
+
+      let i = 0;
+      while (i < resolvedCols.length) {
+        const c0 = resolvedCols[i];
+        const group = c0.group;
+        if (!group) {
+          // Spacer same bg as leaf
+          const { bg } = (() => {
+            let bg = c0.header_bg;
+            if ((bg === 'group' || bg === 'GROUP') && c0.group) bg = groupColors[c0.group] || '#d9e3f8';
+            if (!bg) bg = '#0b2557';
+            return { bg };
+          })();
+          const spacer = makeTh('', { bg, color: '#fff' });
+          spacer.style.borderBottom = 'none';
+          groupRow.appendChild(spacer);
+
+          const leaf = makeTh(c0.label, colorForLeaf(c0));
+          leaf.dataset.key = c0.key;
+          colRow.appendChild(leaf);
+          i++; continue;
+        }
+        let j = i + 1;
+        while (j < resolvedCols.length && resolvedCols[j].group === group) j++;
+        const thg = makeTh(group, { bg: groupColors[group] || '#d9e3f8', color: '#0b1020' });
+        thg.colSpan = j - i;
+        groupRow.appendChild(thg);
+
+        for (let k = i; k < j; k++) {
+          const leaf = makeTh(resolvedCols[k].label, colorForLeaf(resolvedCols[k]));
+          leaf.dataset.key = resolvedCols[k].key;
+          colRow.appendChild(leaf);
+        }
+        i = j;
+      }
+      function colorForLeaf(col) {
+        let bg = col.header_bg, color = col.header_color;
+        if ((bg === 'group' || bg === 'GROUP') && col.group) bg = groupColors[col.group] || '#d9e3f8';
+        if (!bg) bg = '#0b2557';
+        if (!color) color = (String(bg).toLowerCase() === '#0b2557') ? '#ffffff' : '#0b1020';
+        return { bg, color };
+      }
+
+      groupTable.appendChild(groupRow);
+      colTable.appendChild(colRow);
+      this.groupHeaderWrap.appendChild(groupTable);
+      this.colHeaderWrap.appendChild(colTable);
+
+      // Body
+      const bodyTable = makeTable();
+      const tbody = document.createElement('tbody');
+      const fmt = (v) => (v == null ? '' : (v.toLocaleString?.() ?? String(v)));
+
+      rows.forEach((r, rowIdx) => {
         const tr = document.createElement('tr');
         resolvedCols.forEach(c => {
           const td = makeTd();
-          const v = r[c.key];
-          td.textContent = fmt(v);
+          const vRaw = r[c.key];
+          const vFmt = r['__fmt__' + c.key];
+          td.textContent = fmt(vRaw);
           td.style.textAlign = c.align || 'left';
           td.style.fontWeight = c.bold ? '700' : '400';
-          if (c.heat) td.style.background = shade(c.key, v);
 
-          // Click-to-filter
-          if (clickKey && clickFieldName && c.key === clickKey && v != null && v !== '') {
+          if (config.enable_click_filter && clickKey && clickFieldName && c.key === clickKey && vRaw != null && vRaw !== '') {
             td.style.cursor = 'pointer';
             td.style.textDecoration = 'underline';
-            td.title = `Filter: ${clickFieldName} = ${v}`;
+            td.title = `Filter: ${clickFieldName} = ${vFmt ?? vRaw}`;
             td.addEventListener('click', () => {
-              emitFilter(clickFieldName, v); // use raw value, not formatted
+              emitFilter(clickFieldName, vRaw, vFmt ?? String(vRaw));
               td.style.outline = '2px solid rgba(63,131,248,.6)';
-              setTimeout(() => (td.style.outline = ''), 300);
+              setTimeout(() => (td.style.outline = ''), 250);
             });
           }
-
           tr.appendChild(td);
         });
         tbody.appendChild(tr);
       });
-    };
+      bodyTable.appendChild(tbody);
+      this.scroller.appendChild(bodyTable);
 
-    // Sorting
-    const sortRows = (arr, key, dir) => {
-      const copy = arr.slice();
-      copy.sort((a, b) => {
-        const va = parseForSort(a[key]), vb = parseForSort(b[key]);
-        const na = (va == null || va === ''), nb = (vb == null || vb === '');
-        if (na && nb) return 0; if (na) return 1; if (nb) return -1;
-        if (typeof va === 'number' && typeof vb === 'number') return dir === 'asc' ? va - vb : vb - va;
-        return dir === 'asc' ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
-      });
-      return copy;
-    };
-
-    if (!this.sortState.key) {
-      const defKey = findKeyByLabelOrKey(config.default_sort_column);
-      if (defKey) this.sortState = { key: defKey, dir: (String(config.default_sort_direction).toLowerCase() === 'desc' ? 'desc' : 'asc') };
-    }
-
-    const clearIndicators = () => {
-      Array.from(colRow.children).forEach(th => th.innerText = th.innerText.replace(/\s*[▲▼]$/, ''));
-    };
-    const applyIndicator = () => {
-      if (!this.sortState.key) return;
-      const th = Array.from(colRow.children).find(el => el.dataset.key === this.sortState.key);
-      if (th) th.innerText = `${th.innerText.replace(/\s*[▲▼]$/, '')} ${this.sortState.dir === 'asc' ? '▲' : '▼'}`;
-    };
-    if (config.enable_sorting) {
-      Array.from(colRow.children).forEach(th => {
-        th.style.cursor = 'pointer';
-        th.addEventListener('click', () => {
-          const key = th.dataset.key;
-          if (!key) return;
-          if (this.sortState.key === key) this.sortState.dir = this.sortState.dir === 'asc' ? 'desc' : 'asc';
-          else this.sortState = { key, dir: 'asc' };
-          clearIndicators(); applyIndicator();
-          renderBody(sortRows(rows, this.sortState.key, this.sortState.dir));
-          this._syncWidths();
-        });
-      });
-    }
-
-    clearIndicators(); if (config.enable_sorting && this.sortState.key) applyIndicator();
-    const initialRows = this.sortState.key ? sortRows(rows, this.sortState.key, this.sortState.dir) : rows;
-    renderBody(initialRows);
-
-    bodyTable.appendChild(tbody);
-    this.scroller.appendChild(bodyTable);
-
-    // ----- Column width sync: measure body cells → apply to headers & groups
-    this._syncWidths = () => {
-      const firstRow = tbody.rows[0];
-      const colCount = resolvedCols.length;
-      let widths = new Array(colCount).fill(0);
-
-      if (firstRow) {
-        for (let c = 0; c < colCount; c++) {
-          const cell = firstRow.cells[c];
-          if (!cell) continue;
-          widths[c] = Math.max(80, Math.ceil(cell.getBoundingClientRect().width));
+      // Simple width sync
+      this._syncWidths = () => {
+        const firstRow = tbody.rows[0];
+        const colCount = resolvedCols.length;
+        let widths = new Array(colCount).fill(0);
+        if (firstRow) {
+          for (let c = 0; c < colCount; c++) {
+            const cell = firstRow.cells[c];
+            if (!cell) continue;
+            widths[c] = Math.max(80, Math.ceil(cell.getBoundingClientRect().width));
+          }
         }
-      } else {
-        const eq = Math.max(100, Math.floor(this.scroller.clientWidth / colCount));
-        widths = widths.map(() => eq);
-      }
-
-      // Leaf header widths
-      const leafTHs = Array.from(colRow.children);
-      leafTHs.forEach((th, idx) => {
-        const w = widths[idx];
-        th.style.width = w + 'px';
-        th.style.minWidth = w + 'px';
-        th.style.maxWidth = w + 'px';
-      });
-
-      // Group header widths (sum of children)
-      let cursor = 0;
-      const groupTHs = Array.from(groupRow.children);
-      groupTHs.forEach(thg => {
-        const span = Number(thg.colSpan || 1);
-        const total = widths.slice(cursor, cursor + span).reduce((a, b) => a + b, 0);
-        thg.style.width = total + 'px';
-        thg.style.minWidth = total + 'px';
-        thg.style.maxWidth = total + 'px';
-        cursor += span;
-      });
-
-      // Match header and body table widths to total
-      const totalW = widths.reduce((a,b)=>a+b,0);
-      groupTable.style.width = totalW + 'px';
-      colTable.style.width   = totalW + 'px';
-      bodyTable.style.width  = totalW + 'px';
-    };
-
-    requestAnimationFrame(() => this._syncWidths());
-
-    // Horizontal scroll sync
-    this.scroller.onscroll = () => {
-      const left = this.scroller.scrollLeft;
-      this.groupHeaderWrap.scrollLeft = left;
-      this.colHeaderWrap.scrollLeft = left;
-    };
+        const setWidths = (rowEl) => {
+          Array.from(rowEl.children).forEach((th, idx) => {
+            const w = widths[idx] || 100;
+            th.style.width = w + 'px';
+            th.style.minWidth = w + 'px';
+            th.style.maxWidth = w + 'px';
+          });
+        };
+        setWidths(colRow);
+        // group row spans; set total width
+        let cursor = 0;
+        Array.from(groupRow.children).forEach(thg => {
+          const span = Number(thg.colSpan || 1);
+          const total = widths.slice(cursor, cursor + span).reduce((a, b) => a + b, 0);
+          thg.style.width = total + 'px';
+          thg.style.minWidth = total + 'px';
+          thg.style.maxWidth = total + 'px';
+          cursor += span;
+        });
+        const totalW = widths.reduce((a,b)=>a+b,0);
+        [groupTable, colTable, bodyTable].forEach(t => t.style.width = totalW + 'px');
+      };
+      requestAnimationFrame(() => this._syncWidths());
+      this.scroller.onscroll = () => {
+        const left = this.scroller.scrollLeft;
+        this.groupHeaderWrap.scrollLeft = left;
+        this.colHeaderWrap.scrollLeft = left;
+      };
+    }
 
     done();
   }
