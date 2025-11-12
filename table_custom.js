@@ -1,24 +1,21 @@
-// -----------------------------------------------------------------------------
-// Looker Custom Viz: Grouped Header Grid (dynamic + grouped header centering)
-// -----------------------------------------------------------------------------
+
 looker.plugins.visualizations.add({
   id: 'grouped_header_grid',
   label: 'Grouped Header Grid',
 
   options: {
     // Paste minified JSON for columns (order matters)
-    // Each item: { field, key, label, group?, align?, bold?, heat? }
+    // Each: { field, key, label, group?, align?, bold?, heat? }
     columns_json: { type: 'string', label: 'Columns JSON', display: 'text', default: '' },
     // Optional group color map: { "Group Name": "#color" }
     group_colors_json: { type: 'string', label: 'Group Colors JSON (optional)', display: 'text', default: '' },
 
-    showHeatmap: { type: 'boolean', label: 'Heatmap activity columns', default: true },
     table_height: { type: 'number', label: 'Max table height (px, 0 = auto)', default: 0 },
 
-    // NEW: toggle to center the top group titles
+    // Toggle to center the top group titles
     center_group_titles: { type: 'boolean', label: 'Center group titles', default: true },
 
-    // Optional helper while wiring fields
+    // Helper while wiring fields (shows the exact field keys returned by the query)
     debug_fields: { type: 'boolean', label: 'Show field debug header', default: false }
   },
 
@@ -49,13 +46,14 @@ looker.plugins.visualizations.add({
       done(); return;
     }
 
-    // ---- Build a resolver of available fields from the query
+    // ---- Gather available fields from the query and build a resolver
     const allFieldDefs = [
       ...(queryResponse.fields?.dimension_like || []),
       ...(queryResponse.fields?.measure_like || []),
       ...(queryResponse.fields?.table_calculations || [])
     ];
     const fieldKeys = allFieldDefs.map(f => f.name); // "view.field"
+
     const shortToFull = {};
     const labelToFull = {};
     allFieldDefs.forEach(f => {
@@ -66,6 +64,7 @@ looker.plugins.visualizations.add({
         if (!labelToFull[k]) labelToFull[k] = f.name;
       }
     });
+
     const resolveField = (spec) => {
       if (!spec) return null;
       if (fieldKeys.includes(spec)) return spec;                       // exact
@@ -115,7 +114,7 @@ looker.plugins.visualizations.add({
     table.style.borderSpacing = '0';
     table.style.tableLayout = 'fixed';
 
-    // ---- Header cell factory (handles centering toggle)
+    // ---- Header cell factory (honors the centering toggle for group titles)
     const makeTh = (txt, opts = {}) => {
       const th = document.createElement('th');
       th.textContent = txt;
@@ -132,7 +131,6 @@ looker.plugins.visualizations.add({
       th.style.height = '40px';
       th.style.lineHeight = '1.3em';
 
-      // If this is a grouped header and the toggle is on, center it
       if (opts.isGroup && config.center_group_titles) {
         th.style.textAlign = 'center';
       }
@@ -167,7 +165,7 @@ looker.plugins.visualizations.add({
     thead.appendChild(r1);
     thead.appendChild(r2);
 
-    // ---- Body + heatmap
+    // ---- Body (heatmap applied if a column has heat:true; no toggle)
     const tbody = document.createElement('tbody');
 
     const heatCols = resolvedCols.filter(c => c.heat);
@@ -203,13 +201,13 @@ looker.plugins.visualizations.add({
         const v = r[c.key];
         td.textContent = v == null ? '' : (v.toLocaleString?.() ?? String(v));
         td.style.padding = '10px';
-        td.style.borderBottom = '1px solid '#eef1f6';
+        td.style.borderBottom = '1px solid #eef1f6';   // <-- fixed syntax
         td.style.textAlign = c.align || 'left';
         td.style.fontWeight = c.bold ? '700' : '400';
         td.style.whiteSpace = 'nowrap';
         td.style.overflow = 'hidden';
         td.style.textOverflow = 'ellipsis';
-        if (config.showHeatmap && c.heat) td.style.background = shade(c.key, Number(v));
+        if (c.heat) td.style.background = shade(c.key, Number(v)); // no toggle
         tr.appendChild(td);
       });
       tbody.appendChild(tr);
