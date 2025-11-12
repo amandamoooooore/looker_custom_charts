@@ -198,29 +198,41 @@ looker.plugins.visualizations.add({
       Explore tends to ignore filter events on fields that aren’t part of the query.`;
     }
 
-    // robust filter emitter: send all known shapes
-    const emitFilter = (field, raw, formatted) => {
+    // Robust emitter for STRING fields (Explore + Dashboards)
+    const emitFilter = (field, rawValue, formattedValue) => {
+      // Coerce to strings
+      const vRaw = (rawValue == null) ? '' : String(rawValue);
+      const vFmt = (formattedValue == null) ? vRaw : String(formattedValue);
+    
+      // Escape quotes for quoted payload
+      const esc = s => s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      const rawQuoted = `"${esc(vRaw)}"`;
+      const fmtQuoted = `"${esc(vFmt)}"`;
+    
+      // Decide which base to prefer from the config, but we will try both styles
       const mode = (config.click_filter_value_mode || 'both').toLowerCase();
-      const vRaw = raw;
-      const vFmt = (formatted == null ? String(raw) : formatted);
-
-      const push = (value) => {
-        // 1) simplest
+      const chooseBases = () => {
+        if (mode === 'raw') return [vRaw, rawQuoted];
+        if (mode === 'formatted') return [vFmt, fmtQuoted];
+        // both: try raw (unquoted), then formatted (quoted) as fallback
+        return [vRaw, fmtQuoted, vFmt, rawQuoted];
+      };
+    
+      const sendOne = (value) => {
+        // Explore (3 shapes)
         this.trigger('filter', { field, value, run: true });
-        // 2) array of filters
         this.trigger('filter', { filters: [{ field, value }], run: true });
-        // 3) parallel arrays
         this.trigger('filter', { fields: [field], values: [value], run: true });
         // Dashboards
         this.trigger('dashboard:filter', { field, value });
         this.trigger('dashboard:run');
       };
-
-      if (mode === 'raw') { push(vRaw); }
-      else if (mode === 'formatted') { push(vFmt); }
-      else { push(vRaw); setTimeout(() => push(vFmt), 0); }
-
-      try { console.log('[HC Grid] filter click →', { field, raw: vRaw, formatted: vFmt, mode }); } catch (e) {}
+    
+      // Try multiple string payload shapes/quoting
+      const bases = chooseBases();
+      bases.forEach((val, idx) => setTimeout(() => sendOne(val), idx * 0));
+    
+      try { console.log('[Grouped Grid] string filter emit →', { field, tries: bases }); } catch (e) {}
     };
 
     // try Highcharts Grid first
