@@ -349,6 +349,9 @@ looker.plugins.visualizations.add({
         height: chartHeight,
         scrollablePlotArea: { minHeight: totalPlotHeight + V_PAD, scrollPositionY: 0 }
       },
+      credits: {
+        enabled: false
+      },
       exporting: { enabled: false },
       title: { text: null },
 
