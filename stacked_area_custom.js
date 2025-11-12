@@ -70,13 +70,13 @@ looker.plugins.visualizations.add({
       const css = document.createElement("style");
       css.id = "sa_area_css";
       css.textContent = `
-        .highcharts-tooltip.sa-tooltip > span{
-          background: transparent !important; border: 0 !important; padding: 0 !important;
-          white-space: nowrap !important; display: inline-block !important;
-        }
-        .highcharts-tooltip.sa-tooltip .sa-tip-inner{
-          display: inline-block; background:#fff; border:1px solid #9aa0a6; border-radius:6px;
-          padding:8px 10px; box-shadow:0 2px 8px rgba(0,0,0,.15); color:#000; white-space:nowrap;
+        .highcharts-tooltip.sa-tooltip > span {
+          background: #fff !important; /* white background */
+          border: none !important;     /* remove inner border */
+          box-shadow: none !important; /* remove shadow */
+          border-radius: 6px !important;
+          padding: 6px 10px !important;
+          color: #000 !important;
         }
       `;
       document.head.appendChild(css);
@@ -299,20 +299,27 @@ looker.plugins.visualizations.add({
           }
         }
       },
-
+      
       tooltip: {
         useHTML: !!config.use_tooltip_field,
         className: "sa-tooltip",
         outside: true,
+        backgroundColor: "#fff", // keep white background
+        borderColor: "transparent", // remove inner border
+        borderWidth: 0,
+        borderRadius: 6,
+        shadow: false, // remove drop shadow
+        shape: "callout", // keep the pointer
+        padding: 6,
         style: { color: "#000", whiteSpace: "nowrap" },
         formatter: function () {
-          const wrap = (html) => `<span class="sa-tip-inner">${html}</span>`;
+          const wrap = (html) => `<div class="sa-tip-inner">${html}</div>`;
           if (config.use_tooltip_field && this.point?.custom?.html) {
             return wrap(this.point.custom.html);
           }
           return wrap(`<b>${this.series.name}</b><br/>${this.x}: <b>${Highcharts.numberFormat(this.y, 4)}</b>`);
         }
-      },
+      }
 
       series
     });
