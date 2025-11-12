@@ -113,6 +113,15 @@ looker.plugins.visualizations.add({
       th.style.color = opts.color ?? (opts.bg ? '#0b1020' : '#ffffff');
       th.style.position = 'sticky';
       th.style.top = '0';
+      th.style.verticalAlign = 'middle';
+      th.style.height = '40px';
+      th.style.lineHeight = '1.3em';
+    
+      // Center text if this is a grouped header (has bg color defined)
+      if (opts.bg) {
+        th.style.textAlign = 'center';
+      }
+    
       return th;
     };
 
