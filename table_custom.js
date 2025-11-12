@@ -200,40 +200,18 @@ looker.plugins.visualizations.add({
 
     // Robust emitter for STRING fields (Explore + Dashboards)
     const emitFilter = (field, rawValue, formattedValue) => {
-      // Coerce to strings
-      const vRaw = (rawValue == null) ? '' : String(rawValue);
-      const vFmt = (formattedValue == null) ? vRaw : String(formattedValue);
-    
-      // Escape quotes for quoted payload
-      const esc = s => s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-      const rawQuoted = `"${esc(vRaw)}"`;
-      const fmtQuoted = `"${esc(vFmt)}"`;
-    
-      // Decide which base to prefer from the config, but we will try both styles
-      const mode = (config.click_filter_value_mode || 'both').toLowerCase();
-      const chooseBases = () => {
-        if (mode === 'raw') return [vRaw, rawQuoted];
-        if (mode === 'formatted') return [vFmt, fmtQuoted];
-        // both: try raw (unquoted), then formatted (quoted) as fallback
-        return [vRaw, fmtQuoted, vFmt, rawQuoted];
-      };
-    
-      const sendOne = (value) => {
-        // Explore (3 shapes)
-        this.trigger('filter', { field, value, run: true });
-        this.trigger('filter', { filters: [{ field, value }], run: true });
-        this.trigger('filter', { fields: [field], values: [value], run: true });
-        // Dashboards
-        this.trigger('dashboard:filter', { field, value });
-        this.trigger('dashboard:run');
-      };
-    
-      // Try multiple string payload shapes/quoting
-      const bases = chooseBases();
-      bases.forEach((val, idx) => setTimeout(() => sendOne(val), idx * 0));
-    
-      try { console.log('[Grouped Grid] string filter emit →', { field, tries: bases }); } catch (e) {}
-    };
+    const v = (rawValue == null) ? '' : String(rawValue);
+    const f = (formattedValue == null) ? v : String(formattedValue);
+  
+    // 1) Explore-friendly legacy shape (array of filter objects) — this is the important one
+    this.trigger('filter', [{ field, value: v, formatted: f }]);
+  
+    // 2) Dashboard compatibility (ignored by Explore, useful on dashboards)
+    this.trigger('dashboard:filter', { field, value: v });
+    this.trigger('dashboard:run');
+  
+    try { console.log('[Grid] emitFilter Explore-shape →', { field, value: v, formatted: f }); } catch (e) {}
+  };
 
     // try Highcharts Grid first
     const wantHC = config.prefer_highcharts_grid !== false;
