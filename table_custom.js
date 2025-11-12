@@ -1,25 +1,40 @@
-
+// -----------------------------------------------------------------------------
+// Grouped Header Grid (Fixed Header, Synced Widths, Sorting, Click-to-Filter)
+// - Two fixed header rows (no movement) + horizontal scroll sync
+// - Column widths synced between header & body (measure body → apply to header)
+// - Dynamic Columns JSON (grouping, header_bg/header_color, align, bold, heat)
+// - Group colors JSON; header_bg: "group" inherits group color
+// - Column labels centered; group titles optionally centered
+// - Sorting (toggle) + default sort column/direction
+// - Click-to-filter works in BOTH Explore and Dashboards
+// -----------------------------------------------------------------------------
 looker.plugins.visualizations.add({
   id: 'grouped_header_grid_fixedheader',
   label: 'Grouped Header Grid (Fixed Header)',
 
   options: {
+    // Columns JSON: [{ field, key, label, group?, align?, bold?, heat?, header_bg?, header_color? }, ...]
     columns_json: { type: 'string', label: 'Columns JSON', display: 'text', default: '' },
+    // Group Colors JSON: { "Group Name": "#hex" }
     group_colors_json: { type: 'string', label: 'Group Colors JSON (optional)', display: 'text', default: '' },
 
+    // Layout
     table_height: { type: 'number', label: 'Max table height (px, 0 = auto)', default: 450 },
     center_group_titles: { type: 'boolean', label: 'Center group titles', default: true },
 
+    // Sorting
     enable_sorting: { type: 'boolean', label: 'Enable sorting (click headers)', default: true },
     default_sort_column: { type: 'string', label: 'Default sort column (key or label)', display: 'text', default: '' },
     default_sort_direction: { type: 'string', label: 'Default sort direction (asc/desc)', display: 'text', default: 'asc' },
 
+    // Click-to-filter
     enable_click_filter: { type: 'boolean', label: 'Enable click-to-filter', default: true },
     click_filter_column: { type: 'string', label: 'Click filter column (key or label)', display: 'text', default: '' },
     click_filter_field:   { type: 'string', label: 'Click filter field (optional Looker field)', display: 'text', default: '' }
   },
 
   create (element) {
+    // Root container
     const root = document.createElement('div');
     root.style.position = 'relative';
     root.style.fontFamily = 'Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
@@ -31,6 +46,7 @@ looker.plugins.visualizations.add({
     element.appendChild(root);
     this.root = root;
 
+    // Fixed header wrappers
     const groupHeaderWrap = document.createElement('div');
     groupHeaderWrap.style.position = 'sticky';
     groupHeaderWrap.style.top = '0';
@@ -42,13 +58,14 @@ looker.plugins.visualizations.add({
 
     const colHeaderWrap = document.createElement('div');
     colHeaderWrap.style.position = 'sticky';
-    colHeaderWrap.style.top = '44px';
+    colHeaderWrap.style.top = '44px'; // sits under group row
     colHeaderWrap.style.zIndex = '9';
     colHeaderWrap.style.background = '#fff';
     colHeaderWrap.style.overflow = 'hidden';
     this.root.appendChild(colHeaderWrap);
     this.colHeaderWrap = colHeaderWrap;
 
+    // Scrollable body
     const scroller = document.createElement('div');
     scroller.style.overflow = 'auto';
     scroller.style.position = 'relative';
@@ -57,17 +74,21 @@ looker.plugins.visualizations.add({
     this.root.appendChild(scroller);
     this.scroller = scroller;
 
+    // State
     this.sortState = { key: null, dir: 'asc' };
 
+    // Recalc widths on resize
     this._resizeObserver = new ResizeObserver(() => this._syncWidths && this._syncWidths());
     this._resizeObserver.observe(scroller);
   },
 
   updateAsync (data, element, config, queryResponse, details, done) {
+    // Wipe
     this.groupHeaderWrap.innerHTML = '';
     this.colHeaderWrap.innerHTML = '';
     this.scroller.innerHTML = '';
 
+    // Helpers
     const parseJSON = (txt, fb) => { try { return JSON.parse(txt || ''); } catch { return fb; } };
     const cols = parseJSON(config.columns_json, []);
     const groupColors = parseJSON(config.group_colors_json, {});
@@ -79,7 +100,7 @@ looker.plugins.visualizations.add({
     }
     if (Number(config.table_height) > 0) this.scroller.style.maxHeight = `${config.table_height}px`;
 
-    // ---- field resolver
+    // Field resolution
     const allFieldDefs = [
       ...(queryResponse.fields?.dimension_like || []),
       ...(queryResponse.fields?.measure_like || []),
@@ -108,13 +129,13 @@ looker.plugins.visualizations.add({
       return { ...c, _rowKey: rk };
     });
 
-    // ---- data
+    // Data extraction (use raw values for sorting & filtering)
     const rawVal = (row, key) => key && row[key] ? row[key].value : null;
     let rows = data.map(r => {
       const o = {}; resolvedCols.forEach(c => o[c.key] = rawVal(r, c._rowKey)); return o;
     });
 
-    // ---- helpers
+    // Parsing for sort / heat
     const parseForSort = (v) => {
       if (v == null) return null;
       if (typeof v === 'number') return v;
@@ -124,6 +145,7 @@ looker.plugins.visualizations.add({
       return Number.isNaN(n) ? String(v).toLowerCase() : n;
     };
 
+    // Heatmap scales
     const heatCols = resolvedCols.filter(c => c.heat);
     const mins = {}, maxs = {};
     heatCols.forEach(c => {
@@ -140,6 +162,7 @@ looker.plugins.visualizations.add({
       return `rgba(63,131,248,${0.12 + 0.28*t})`;
     };
 
+    // Header colors (supports header_bg: "group")
     const resolveLeafHeaderColors = (col, groupColors) => {
       let bg = col.header_bg;
       let color = col.header_color;
@@ -152,7 +175,7 @@ looker.plugins.visualizations.add({
       return { bg, color };
     };
 
-    // ---- factories
+    // Factories
     const makeTable = () => {
       const t = document.createElement('table');
       t.style.width = '100%';
@@ -167,7 +190,7 @@ looker.plugins.visualizations.add({
       th.style.padding = '12px 10px';
       th.style.fontWeight = opts.bold ? '700' : '600';
       th.style.fontSize = '13px';
-      th.style.textAlign = 'center';           // <-- center column label text
+      th.style.textAlign = 'center'; // center column labels
       th.style.borderBottom = '1px solid #e6e8ee';
       th.style.background = opts.bg ?? '#0b2557';
       th.style.color = opts.color ?? (opts.bg === '#0b2557' ? '#ffffff' : '#0b1020');
@@ -189,7 +212,7 @@ looker.plugins.visualizations.add({
       return td;
     };
 
-    // ---- headers
+    // ---------------- Header tables ----------------
     const groupTable = makeTable();
     const groupRow  = document.createElement('tr');
 
@@ -203,16 +226,15 @@ looker.plugins.visualizations.add({
       const g = first.group;
 
       if (!g) {
-        // spacer above an ungrouped column should match that column's header bg
+        // Spacer above ungrouped column should match that column's header bg
         const { bg: leafBg } = resolveLeafHeaderColors(first, groupColors);
-        const spacer = makeTh('', { isGroup: true, bg: leafBg, color: '#fff' }); // <-- match leaf bg
+        const spacer = makeTh('', { isGroup: true, bg: leafBg, color: '#fff' });
         spacer.style.borderBottom = 'none';
         groupRow.appendChild(spacer);
 
         const { bg, color } = resolveLeafHeaderColors(first, groupColors);
         const th = makeTh(first.label, { bg, color });
         th.dataset.key = first.key;
-        // label centered; body cells still use c.align
         colRow.appendChild(th);
         leafThByKey[first.key] = th;
 
@@ -239,7 +261,7 @@ looker.plugins.visualizations.add({
     this.groupHeaderWrap.appendChild(groupTable);
     this.colHeaderWrap.appendChild(colTable);
 
-    // ---- body
+    // ---------------- Body table ----------------
     const bodyTable = makeTable();
     const tbody = document.createElement('tbody');
     const fmt = v => (v == null ? '' : (v.toLocaleString?.() ?? String(v)));
@@ -253,6 +275,7 @@ looker.plugins.visualizations.add({
       return byLabel ? byLabel.key : null;
     };
 
+    // Click-to-filter column & field
     const clickKey = config.enable_click_filter ? (findKeyByLabelOrKey(config.click_filter_column) || null) : null;
     const clickFieldFallback = (() => {
       if (!clickKey) return null;
@@ -260,6 +283,19 @@ looker.plugins.visualizations.add({
       return col?._rowKey || null;
     })();
     const clickFieldName = (config.click_filter_field || clickFieldFallback || '').trim();
+
+    // Emit filter for BOTH Explore and Dashboards
+    const emitFilter = (field, value) => {
+      const payload = { field, value };
+      // Explore: add chip + run
+      this.trigger('filter', { ...payload, run: true });
+      // Dashboards: mapped tiles
+      this.trigger('dashboard:filter', payload);
+      // Some dashboards require explicit run
+      this.trigger('dashboard:run');
+      // Debug
+      try { console.log('[Grouped Grid] filter click →', payload); } catch (e) {}
+    };
 
     const renderBody = (rowsIn) => {
       tbody.innerHTML = '';
@@ -269,25 +305,29 @@ looker.plugins.visualizations.add({
           const td = makeTd();
           const v = r[c.key];
           td.textContent = fmt(v);
-          td.style.textAlign = c.align || 'left';   // body cell alignment unchanged
+          td.style.textAlign = c.align || 'left';
           td.style.fontWeight = c.bold ? '700' : '400';
           if (c.heat) td.style.background = shade(c.key, v);
 
+          // Click-to-filter
           if (clickKey && clickFieldName && c.key === clickKey && v != null && v !== '') {
             td.style.cursor = 'pointer';
             td.style.textDecoration = 'underline';
             td.title = `Filter: ${clickFieldName} = ${v}`;
             td.addEventListener('click', () => {
-              this.trigger('dashboard:filter', { field: clickFieldName, value: String(v) });
+              emitFilter(clickFieldName, v); // use raw value, not formatted
+              td.style.outline = '2px solid rgba(63,131,248,.6)';
+              setTimeout(() => (td.style.outline = ''), 300);
             });
           }
+
           tr.appendChild(td);
         });
         tbody.appendChild(tr);
       });
     };
 
-    // ---- sorting
+    // Sorting
     const sortRows = (arr, key, dir) => {
       const copy = arr.slice();
       copy.sort((a, b) => {
@@ -335,7 +375,7 @@ looker.plugins.visualizations.add({
     bodyTable.appendChild(tbody);
     this.scroller.appendChild(bodyTable);
 
-    // ---- width sync
+    // ----- Column width sync: measure body cells → apply to headers & groups
     this._syncWidths = () => {
       const firstRow = tbody.rows[0];
       const colCount = resolvedCols.length;
@@ -352,6 +392,7 @@ looker.plugins.visualizations.add({
         widths = widths.map(() => eq);
       }
 
+      // Leaf header widths
       const leafTHs = Array.from(colRow.children);
       leafTHs.forEach((th, idx) => {
         const w = widths[idx];
@@ -360,6 +401,7 @@ looker.plugins.visualizations.add({
         th.style.maxWidth = w + 'px';
       });
 
+      // Group header widths (sum of children)
       let cursor = 0;
       const groupTHs = Array.from(groupRow.children);
       groupTHs.forEach(thg => {
@@ -371,6 +413,7 @@ looker.plugins.visualizations.add({
         cursor += span;
       });
 
+      // Match header and body table widths to total
       const totalW = widths.reduce((a,b)=>a+b,0);
       groupTable.style.width = totalW + 'px';
       colTable.style.width   = totalW + 'px';
@@ -379,7 +422,7 @@ looker.plugins.visualizations.add({
 
     requestAnimationFrame(() => this._syncWidths());
 
-    // horizontal scroll sync
+    // Horizontal scroll sync
     this.scroller.onscroll = () => {
       const left = this.scroller.scrollLeft;
       this.groupHeaderWrap.scrollLeft = left;
