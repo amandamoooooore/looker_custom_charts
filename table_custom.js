@@ -1,160 +1,150 @@
-// --- Load a script once ---
-function loadScriptOnce(src) {
-  return new Promise((resolve, reject) => {
-    if (document.querySelector(`script[src="${src}"]`)) return resolve();
-    const s = document.createElement("script");
-    s.src = src;
-    s.async = true;
-    s.onload = resolve;
-    s.onerror = () => reject(new Error("Failed to load " + src));
-    document.head.appendChild(s);
-  });
-}
-
 looker.plugins.visualizations.add({
-  id: "simple_highcharts_grid",
-  label: "Simple Highcharts Grid (Cross-filter)",
+  id: "simple_html_grid_crossfilter",
+  label: "Simple Grid (cross-filter)",
   supports: { crossfilter: true },
 
   options: {
     click_field: {
-      label: "Field to filter on",
+      label: "Field to filter on (fully qualified name)",
       type: "string",
-      default: ""
+      default: "" // if blank, falls back to first dimension
     }
   },
 
   create(element) {
-    element.innerHTML = "<div id='hc_grid_container' style='width:100%;height:100%;'></div>";
+    // Basic container for the grid
+    element.innerHTML = `
+      <div id="simple_grid_container"
+           style="width:100%;height:100%;overflow:auto;font-family:inherit;font-size:12px;">
+      </div>
+    `;
+  },
 
-    // Load ONLY what we need
-    this._hcReady = (async () => {
-      await loadScriptOnce("https://code.highcharts.com/highcharts.js");
-      await loadScriptOnce("https://code.highcharts.com/modules/heatmap.js");
-    })();
+  /**
+   * Safe HTML escape so we don't accidentally inject anything nasty into the table
+   */
+  _escapeHTML(str) {
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
   },
 
   async updateAsync(data, element, config, queryResponse, details, done) {
-    await this._hcReady;
+    const container = document.getElementById("simple_grid_container");
 
-    const container = document.getElementById("hc_grid_container");
+    const fields = queryResponse.fields || {};
+    const dims   = fields.dimension_like || [];
+    const meas   = fields.measure_like   || [];
+    const allFields = [...dims, ...meas];
 
-    const dims  = queryResponse.fields.dimension_like  || [];
-    const meas  = queryResponse.fields.measure_like     || [];
-    const fields = [...dims, ...meas];
-
-    if (fields.length === 0) {
-      container.innerHTML = "Add some fields.";
+    if (!allFields.length) {
+      container.innerHTML = "<div style='padding:12px;color:#666'>Add some dimensions/measures, then click <b>Run</b>.</div>";
       done();
       return;
     }
 
-    if (!data || data.length === 0) {
-      container.innerHTML = "No data.";
+    if (!data || !data.length) {
+      container.innerHTML = "<div style='padding:12px;color:#666'>No data.</div>";
       done();
       return;
     }
 
-    // Build table structure
-    const xCats = fields.map(f => f.label_short || f.label || f.name);
-    const yCats = data.map((_, i) => "Row " + (i + 1));
+    // Determine which field we’ll filter on when a cell is clicked
+    let filterFieldName = (config.click_field || "").trim();
+    if (!filterFieldName && dims[0]) {
+      filterFieldName = dims[0].name; // default = first dimension
+    }
 
-    // Build heatmap points (1 point per cell)
-    const points = [];
+    // Helpers to pull cell values
+    const getCell = (row, fieldName) => row[fieldName] || {};
+    const getRaw  = (row, fieldName) => {
+      const cell = getCell(row, fieldName);
+      return ("value" in cell) ? cell.value : null;
+    };
+    const getRendered = (row, fieldName) => {
+      const cell = getCell(row, fieldName);
+      return cell.html ?? cell.rendered ?? cell.value ?? "";
+    };
 
+    // Build the table HTML
+    let html = `
+      <table style="border-collapse:collapse;width:100%;min-width:100%;">
+        <thead>
+          <tr>
+    `;
+
+    // Header row
+    for (const f of allFields) {
+      const label = f.label_short || f.label || f.name;
+      html += `
+        <th style="position:sticky;top:0;background:#111a44;color:#fff;padding:8px 10px;border-bottom:1px solid #e0e0e0;text-align:left;white-space:nowrap;">
+          ${this._escapeHTML(label)}
+        </th>`;
+    }
+
+    html += `
+          </tr>
+        </thead>
+        <tbody>
+    `;
+
+    // Data rows
     data.forEach((row, rowIndex) => {
-      fields.forEach((field, colIndex) => {
-        const cell = row[field.name];
-        let display = cell?.rendered ?? cell?.value ?? "";
+      html += "<tr>";
 
-        points.push({
-          x: colIndex,
-          y: rowIndex,
-          value: 1,                   // all cells equal — no coloring yet
-          custom: {
-            raw: cell?.value ?? null,
-            fieldName: field.name,
-            display: display
-          }
-        });
+      allFields.forEach(field => {
+        const raw   = getRaw(row, field.name);
+        const disp  = getRendered(row, field.name);
+        const safe  = this._escapeHTML(disp);
+
+        html += `
+          <td
+            data-row-index="${rowIndex}"
+            data-field-name="${this._escapeHTML(field.name)}"
+            data-raw-value="${raw === null || raw === undefined ? "" : this._escapeHTML(String(raw))}"
+            style="padding:6px 10px;border-bottom:1px solid #f0f0f0;cursor:pointer;white-space:nowrap;">
+            ${safe}
+          </td>`;
       });
+
+      html += "</tr>";
     });
+
+    html += `
+        </tbody>
+      </table>
+    `;
+
+    container.innerHTML = html;
 
     const viz = this;
 
-    Highcharts.chart("hc_grid_container", {
-      chart: {
-        type: "heatmap",
-        inverted: true,
-        height: element.clientHeight || 500
-      },
+    // Single click handler on the container – event delegation
+    container.onclick = function (evt) {
+      const cell = evt.target.closest("td");
+      if (!cell) return;
 
-      title: { text: null },
-      credits: { enabled: false },
-      exporting: { enabled: false },
+      if (!filterFieldName) return;
 
-      xAxis: {
-        categories: xCats
-      },
-      yAxis: {
-        categories: yCats,
-        title: null,
-        reversed: true
-      },
+      // We always filter on the configured field, using the raw value from that field in this row
+      const rowIndex = Number(cell.getAttribute("data-row-index"));
+      if (!Number.isInteger(rowIndex) || rowIndex < 0 || rowIndex >= data.length) return;
 
-      legend: { enabled: false },
+      const row = data[rowIndex];
+      const rawForFilter = getRaw(row, filterFieldName);
+      const displayForFilter = getRendered(row, filterFieldName);
 
-      tooltip: {
-        formatter: function () {
-          return this.point.custom.display;
-        }
-      },
+      if (rawForFilter === null || rawForFilter === undefined) return;
 
-      plotOptions: {
-        series: {
-          borderWidth: 1,
-          borderColor: "#DDD",
-          dataLabels: {
-            enabled: true,
-            formatter: function () {
-              return this.point.custom.display;
-            },
-            style: {
-              textOutline: "none",
-              color: "#000",
-              fontSize: "11px"
-            }
-          },
-          cursor: "pointer",
-          point: {
-            events: {
-              click: function () {
-                let fieldToFilter = config.click_field || this.point.custom.fieldName;
-                let raw = this.point.custom.raw;
-
-                if (raw == null) return;
-
-                viz.trigger("filter", [{
-                  field: fieldToFilter,
-                  value: String(raw),
-                  formatted: String(raw)
-                }]);
-              }
-            }
-          }
-        }
-      },
-
-      colorAxis: {
-        min: 0,
-        max: 1,
-        stops: [[0, "#ffffff"], [1, "#ffffff"]]  // pure white for all cells
-      },
-
-      series: [{
-        data: points
-      }]
-    });
+      viz.trigger("filter", [{
+        field:     filterFieldName,
+        value:     String(rawForFilter),
+        formatted: String(displayForFilter)
+      }]);
+    };
 
     done();
   }
