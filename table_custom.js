@@ -1,6 +1,6 @@
 looker.plugins.visualizations.add({
   id: "simple_html_grid_crossfilter",
-  label: "Simple Grid (cross-filter)",
+  label: "Simple Grid (cross-filter + basic formatting)",
   supports: { crossfilter: true },
 
   options: {
@@ -8,6 +8,16 @@ looker.plugins.visualizations.add({
       label: "Field to filter on (fully qualified name)",
       type: "string",
       default: "" // if blank, falls back to first dimension
+    },
+    groups_json: {
+      label: "Groups JSON (optional)",
+      type: "string",
+      default: ""
+      // Example:
+      // [
+      //   { "label":"Outcome", "color":"#2ecc71",
+      //     "fields":["inventory.sold_price","inventory.is_confirmed"] }
+      // ]
     }
   },
 
@@ -18,6 +28,26 @@ looker.plugins.visualizations.add({
            style="width:100%;height:100%;overflow:auto;font-family:inherit;font-size:12px;">
       </div>
     `;
+
+    // Inject some CSS once (zebra rows, hover)
+    if (!document.getElementById("simple_grid_crossfilter_css")) {
+      const style = document.createElement("style");
+      style.id = "simple_grid_crossfilter_css";
+      style.textContent = `
+        #simple_grid_container table.simple-grid {
+          border-collapse: collapse;
+          width: 100%;
+          min-width: 100%;
+        }
+        #simple_grid_container table.simple-grid tbody tr:nth-child(even) {
+          background: #f7f8fd;
+        }
+        #simple_grid_container table.simple-grid tbody tr:hover {
+          background: #eef2ff;
+        }
+      `;
+      document.head.appendChild(style);
+    }
   },
 
   /**
@@ -69,24 +99,99 @@ looker.plugins.visualizations.add({
       return cell.html ?? cell.rendered ?? cell.value ?? "";
     };
 
-    // Build the table HTML
+    // ---- Parse groups JSON (optional) ----
+    let groupByField = {};
+    try {
+      const parsed = config.groups_json ? JSON.parse(config.groups_json) : [];
+      (parsed || []).forEach(g => {
+        const label = g.label || g.name || "";
+        const color = g.color || "#d9e3f8";
+        const fieldsList = g.fields || [];
+        fieldsList.forEach(fn => {
+          groupByField[fn] = { label, color };
+        });
+      });
+    } catch (e) {
+      // If invalid JSON, just ignore grouping
+      groupByField = {};
+    }
+
+    // Build an array of group meta per column (or null if no group)
+    const colGroups = allFields.map(f => groupByField[f.name] || null);
+
+    // ---- Build the table HTML ----
     let html = `
-      <table style="border-collapse:collapse;width:100%;min-width:100%;">
+      <table class="simple-grid">
         <thead>
-          <tr>
     `;
 
-    // Header row
+    // Group row (top header) – optional, but we always render a row
+    html += "<tr>";
+
+    // We’ll span contiguous columns that share the same group label
+    for (let i = 0; i < allFields.length; ) {
+      const g = colGroups[i];
+      if (!g) {
+        // Ungrouped column – single blank cell
+        html += `
+          <th style="
+                position:sticky;
+                top:0;
+                z-index:2;
+                background:#111a44;
+                color:#111a44;
+                padding:4px 10px;
+                border-bottom:1px solid #e0e0e0;
+                white-space:nowrap;">
+            &nbsp;
+          </th>`;
+        i++;
+        continue;
+      }
+      // Count how many contiguous columns share this group
+      let j = i + 1;
+      while (j < allFields.length && colGroups[j] && colGroups[j].label === g.label) j++;
+      const colspan = j - i;
+
+      html += `
+        <th colspan="${colspan}" style="
+              position:sticky;
+              top:0;
+              z-index:3;
+              background:${this._escapeHTML(g.color)};
+              color:#0b1020;
+              padding:6px 10px;
+              border-bottom:1px solid #e0e0e0;
+              text-align:center;
+              white-space:nowrap;">
+          ${this._escapeHTML(g.label)}
+        </th>`;
+      i = j;
+    }
+
+    html += "</tr>";
+
+    // Column header row (second sticky header)
+    html += "<tr>";
     for (const f of allFields) {
       const label = f.label_short || f.label || f.name;
       html += `
-        <th style="position:sticky;top:0;background:#111a44;color:#fff;padding:8px 10px;border-bottom:1px solid #e0e0e0;text-align:left;white-space:nowrap;">
+        <th style="
+              position:sticky;
+              top:26px;
+              z-index:4;
+              background:#111a44;
+              color:#fff;
+              padding:6px 10px;
+              border-bottom:1px solid #e0e0e0;
+              text-align:left;
+              white-space:nowrap;">
           ${this._escapeHTML(label)}
         </th>`;
     }
+    html += "</tr>";
 
     html += `
-          </tr>
         </thead>
         <tbody>
     `;
