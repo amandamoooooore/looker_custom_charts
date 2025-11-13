@@ -176,7 +176,7 @@ looker.plugins.visualizations.add({
               background:${this._escapeHTML(g.color)};
               color:#0b1020;
               padding:6px 10px;
-              border-bottom:1px solid #e0e0e0;
+              border-bottom:none;
               text-align:center;
               white-space:nowrap;">
           ${this._escapeHTML(g.label)}
