@@ -280,8 +280,10 @@ looker.plugins.visualizations.add({
                 background:#111a44;
                 color:#111a44;
                 padding:4px 10px;
-                border-bottom:none;        /* no line under the group row */
+                border-bottom:none;
                 white-space:nowrap;
+                overflow:hidden;
+                text-overflow:ellipsis;
                 font-family:'Roboto','Helvetica Neue',Helvetica,Arial,sans-serif;
                 font-size:13px;
                 font-weight:600;
@@ -305,9 +307,11 @@ looker.plugins.visualizations.add({
               background:${this._escapeHTML(g.color)};
               color:#0b1020;
               padding:6px 10px;
-              border-bottom:none;          /* no line between top two rows */
+              border-bottom:none;
               text-align:center;
               white-space:nowrap;
+              overflow:hidden;
+              text-overflow:ellipsis;
               font-family:'Roboto','Helvetica Neue',Helvetica,Arial,sans-serif;
               font-size:13px;
               font-weight:600;
@@ -348,6 +352,8 @@ looker.plugins.visualizations.add({
               border-bottom:1px solid #e0e0e0;
               text-align:left;
               white-space:nowrap;
+              overflow:hidden;
+              text-overflow:ellipsis;
               font-family:'Roboto','Helvetica Neue',Helvetica,Arial,sans-serif;
               font-size:13px;
               font-weight:600;
@@ -383,6 +389,8 @@ looker.plugins.visualizations.add({
               border-bottom:1px solid #f0f0f0;
               cursor:pointer;
               white-space:nowrap;
+              overflow:hidden;
+              text-overflow:ellipsis;
               font-family:'Roboto','Helvetica Neue',Helvetica,Arial,sans-serif;
               font-size:12px;
               font-weight:400;
