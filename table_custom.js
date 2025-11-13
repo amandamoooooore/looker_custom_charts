@@ -1,68 +1,35 @@
 looker.plugins.visualizations.add({
   id: "simple_html_grid_crossfilter",
-  label: "Simple Grid (cross-filter + basic formatting)",
+  label: "Simple Grid (cross-filter + formatting)",
   supports: { crossfilter: true },
 
   options: {
     click_field: {
       label: "Field to filter on (fully qualified name)",
       type: "string",
-      default: "" // if blank, falls back to first dimension
+      default: ""
     },
-    groups_json: {
-      label: "Groups JSON (optional)",
+    rename_columns: {
+      label: "Rename Columns (one per line: field_name = New Label)",
       type: "string",
       default: ""
-      // Example:
-      // [
-      //   { "label":"Outcome", "color":"#2ecc71",
-      //     "fields":["inventory.sold_price","inventory.is_confirmed"] }
-      // ]
-    },
-    column_labels_json: {
-      label: "Column Labels JSON (optional)",
-      type: "string",
-      default: ""
-      // Example:
-      // {
-      //   "inventory.stock_item_id": "Stock Item ID",
-      //   "inventory.dealer_id": "DID"
-      // }
     }
   },
 
   create(element) {
-    // Basic container for the grid
     element.innerHTML = `
       <div id="simple_grid_container"
-           style="width:100%;height:100%;overflow:auto;font-family:inherit;font-size:12px;">
+           style="
+             width:100%;
+             height:100%;
+             overflow:auto;
+             font-family:'Roboto','Helvetica Neue',Helvetica,Arial,sans-serif;
+             font-size:13px;
+           ">
       </div>
     `;
-
-    // Inject some CSS once (zebra rows, hover)
-    if (!document.getElementById("simple_grid_crossfilter_css")) {
-      const style = document.createElement("style");
-      style.id = "simple_grid_crossfilter_css";
-      style.textContent = `
-        #simple_grid_container table.simple-grid {
-          border-collapse: collapse;
-          width: 100%;
-          min-width: 100%;
-        }
-        #simple_grid_container table.simple-grid tbody tr:nth-child(even) {
-          background: #f7f8fd;
-        }
-        #simple_grid_container table.simple-grid tbody tr:hover {
-          background: #eef2ff;
-        }
-      `;
-      document.head.appendChild(style);
-    }
   },
 
-  /**
-   * Safe HTML escape so we don't accidentally inject anything nasty into the table
-   */
   _escapeHTML(str) {
     return String(str)
       .replace(/&/g, "&amp;")
@@ -72,7 +39,23 @@ looker.plugins.visualizations.add({
       .replace(/'/g, "&#39;");
   },
 
+  _parseRenameMap(str) {
+    const map = new Map();
+    if (!str) return map;
+
+    str.split(/\n/).forEach(line => {
+      const m = line.split("=");
+      if (m.length >= 2) {
+        const field = m[0].trim();
+        const label = m.slice(1).join("=").trim();
+        if (field && label) map.set(field, label);
+      }
+    });
+    return map;
+  },
+
   async updateAsync(data, element, config, queryResponse, details, done) {
+
     const container = document.getElementById("simple_grid_container");
 
     const fields = queryResponse.fields || {};
@@ -92,127 +75,60 @@ looker.plugins.visualizations.add({
       return;
     }
 
-    // Determine which field we’ll filter on when a cell is clicked
+    // --- Column rename map ---
+    const renameMap = this._parseRenameMap(config.rename_columns);
+
+    // Determine filter field
     let filterFieldName = (config.click_field || "").trim();
-    if (!filterFieldName && dims[0]) {
-      filterFieldName = dims[0].name; // default = first dimension
-    }
+    if (!filterFieldName && dims[0]) filterFieldName = dims[0].name;
 
-    // Helpers to pull cell values
     const getCell = (row, fieldName) => row[fieldName] || {};
-    const getRaw  = (row, fieldName) => {
-      const cell = getCell(row, fieldName);
-      return ("value" in cell) ? cell.value : null;
-    };
+    const getRaw = (row, fieldName) =>
+      ("value" in (row[fieldName] || {})) ? row[fieldName].value : null;
+
     const getRendered = (row, fieldName) => {
-      const cell = getCell(row, fieldName);
-      return cell.html ?? cell.rendered ?? cell.value ?? "";
+      const c = getCell(row, fieldName);
+      return c.html ?? c.rendered ?? c.value ?? "";
     };
 
-    // ---- Parse groups JSON (optional) ----
-    let groupByField = {};
-    try {
-      const parsed = config.groups_json ? JSON.parse(config.groups_json) : [];
-      (parsed || []).forEach(g => {
-        const label = g.label || g.name || "";
-        const color = g.color || "#d9e3f8";
-        const fieldsList = g.fields || [];
-        fieldsList.forEach(fn => {
-          groupByField[fn] = { label, color };
-        });
-      });
-    } catch (e) {
-      groupByField = {};
-    }
-    const colGroups = allFields.map(f => groupByField[f.name] || null);
-
-    // ---- Parse column labels JSON (optional) ----
-    let labelOverrides = {};
-    try {
-      labelOverrides = config.column_labels_json
-        ? (JSON.parse(config.column_labels_json) || {})
-        : {};
-    } catch (e) {
-      labelOverrides = {};
-    }
-
-    // ---- Build the table HTML ----
     let html = `
-      <table class="simple-grid">
+      <table style="border-collapse:collapse;width:100%;min-width:100%;">
         <thead>
+          <tr>
     `;
 
-    // Group row (top header)
-    html += "<tr>";
-
-    for (let i = 0; i < allFields.length; ) {
-      const g = colGroups[i];
-      if (!g) {
-        // Ungrouped column – single blank cell
-        html += `
-          <th style="
-                position:sticky;
-                top:0;
-                z-index:2;
-                background:#111a44;
-                color:#111a44;
-                padding:4px 10px;
-                border-bottom:none;
-                white-space:nowrap;">
-            &nbsp;
-          </th>`;
-        i++;
-        continue;
-      }
-      let j = i + 1;
-      while (j < allFields.length && colGroups[j] && colGroups[j].label === g.label) j++;
-      const colspan = j - i;
-
-      html += `
-        <th colspan="${colspan}" style="
-              position:sticky;
-              top:0;
-              z-index:3;
-              background:${this._escapeHTML(g.color)};
-              color:#0b1020;
-              padding:6px 10px;
-              border-bottom:none;
-              text-align:center;
-              white-space:nowrap;">
-          ${this._escapeHTML(g.label)}
-        </th>`;
-      i = j;
-    }
-
-    html += "</tr>";
-
-    // Column header row (second sticky header)
-    html += "<tr>";
+    // ---- Header row ----
     for (const f of allFields) {
-      const override = labelOverrides[f.name];
-      const label = override || f.label_short || f.label || f.name;
+      const original = f.label_short || f.label || f.name;
+      const renamed = renameMap.get(f.name) || original;
+
       html += `
         <th style="
-              position:sticky;
-              top:26px;
-              z-index:4;
-              background:#111a44;
-              color:#fff;
-              padding:6px 10px;
-              border-bottom:1px solid #e0e0e0;
-              text-align:left;
-              white-space:nowrap;">
-          ${this._escapeHTML(label)}
-        </th>`;
+          position:sticky;
+          top:0;
+          z-index:3;
+          background:#111a44;
+          color:#fff;
+          padding:10px 12px;
+          border-bottom:none; /* REMOVE LINE BETWEEN HEADER ROWS */
+          text-align:left;
+          white-space:nowrap;
+          font-family:'Roboto','Helvetica Neue',Helvetica,Arial,sans-serif;
+          font-size:14px;
+          font-weight:600;
+        ">
+          ${this._escapeHTML(renamed)}
+        </th>
+      `;
     }
-    html += "</tr>";
 
     html += `
+          </tr>
         </thead>
         <tbody>
     `;
 
-    // Data rows
+    // ---- Data rows ----
     data.forEach((row, rowIndex) => {
       html += "<tr>";
 
@@ -226,9 +142,19 @@ looker.plugins.visualizations.add({
             data-row-index="${rowIndex}"
             data-field-name="${this._escapeHTML(field.name)}"
             data-raw-value="${raw === null || raw === undefined ? "" : this._escapeHTML(String(raw))}"
-            style="padding:6px 10px;border-bottom:1px solid #f0f0f0;cursor:pointer;white-space:nowrap;">
+            style="
+              padding:8px 12px;
+              border-bottom:1px solid #e5e5ee;
+              cursor:pointer;
+              white-space:nowrap;
+              font-family:'Roboto','Helvetica Neue',Helvetica,Arial,sans-serif;
+              font-size:13px;
+              font-weight:400;
+              color:#222;
+            ">
             ${safe}
-          </td>`;
+          </td>
+        `;
       });
 
       html += "</tr>";
@@ -243,7 +169,7 @@ looker.plugins.visualizations.add({
 
     const viz = this;
 
-    // Single click handler on the container – event delegation
+    // ---- Click handler for cross-filtering ----
     container.onclick = function (evt) {
       const cell = evt.target.closest("td");
       if (!cell) return;
@@ -253,15 +179,15 @@ looker.plugins.visualizations.add({
       if (!Number.isInteger(rowIndex) || rowIndex < 0 || rowIndex >= data.length) return;
 
       const row = data[rowIndex];
-      const rawForFilter = getRaw(row, filterFieldName);
-      const displayForFilter = getRendered(row, filterFieldName);
+      const rawVal = getRaw(row, filterFieldName);
+      const formatted = getRendered(row, filterFieldName);
 
-      if (rawForFilter === null || rawForFilter === undefined) return;
+      if (rawVal === null || rawVal === undefined) return;
 
       viz.trigger("filter", [{
-        field:     filterFieldName,
-        value:     String(rawForFilter),
-        formatted: String(displayForFilter)
+        field: filterFieldName,
+        value: String(rawVal),
+        formatted: String(formatted)
       }]);
     };
 
