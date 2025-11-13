@@ -18,6 +18,16 @@ looker.plugins.visualizations.add({
       //   { "label":"Outcome", "color":"#2ecc71",
       //     "fields":["inventory.sold_price","inventory.is_confirmed"] }
       // ]
+    },
+    column_labels_json: {
+      label: "Column Labels JSON (optional)",
+      type: "string",
+      default: ""
+      // Example:
+      // {
+      //   "inventory.stock_item_id": "Stock Item ID",
+      //   "inventory.dealer_id": "DID"
+      // }
     }
   },
 
@@ -112,12 +122,19 @@ looker.plugins.visualizations.add({
         });
       });
     } catch (e) {
-      // If invalid JSON, just ignore grouping
       groupByField = {};
     }
-
-    // Build an array of group meta per column (or null if no group)
     const colGroups = allFields.map(f => groupByField[f.name] || null);
+
+    // ---- Parse column labels JSON (optional) ----
+    let labelOverrides = {};
+    try {
+      labelOverrides = config.column_labels_json
+        ? (JSON.parse(config.column_labels_json) || {})
+        : {};
+    } catch (e) {
+      labelOverrides = {};
+    }
 
     // ---- Build the table HTML ----
     let html = `
@@ -125,10 +142,9 @@ looker.plugins.visualizations.add({
         <thead>
     `;
 
-    // Group row (top header) – optional, but we always render a row
+    // Group row (top header)
     html += "<tr>";
 
-    // We’ll span contiguous columns that share the same group label
     for (let i = 0; i < allFields.length; ) {
       const g = colGroups[i];
       if (!g) {
@@ -148,7 +164,6 @@ looker.plugins.visualizations.add({
         i++;
         continue;
       }
-      // Count how many contiguous columns share this group
       let j = i + 1;
       while (j < allFields.length && colGroups[j] && colGroups[j].label === g.label) j++;
       const colspan = j - i;
@@ -174,7 +189,8 @@ looker.plugins.visualizations.add({
     // Column header row (second sticky header)
     html += "<tr>";
     for (const f of allFields) {
-      const label = f.label_short || f.label || f.name;
+      const override = labelOverrides[f.name];
+      const label = override || f.label_short || f.label || f.name;
       html += `
         <th style="
               position:sticky;
@@ -231,10 +247,8 @@ looker.plugins.visualizations.add({
     container.onclick = function (evt) {
       const cell = evt.target.closest("td");
       if (!cell) return;
-
       if (!filterFieldName) return;
 
-      // We always filter on the configured field, using the raw value from that field in this row
       const rowIndex = Number(cell.getAttribute("data-row-index"));
       if (!Number.isInteger(rowIndex) || rowIndex < 0 || rowIndex >= data.length) return;
 
