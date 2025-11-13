@@ -40,7 +40,7 @@ looker.plugins.visualizations.add({
              height:100%;
              overflow:auto;
              font-family:'Roboto','Helvetica Neue',Helvetica,Arial,sans-serif;
-             font-size:13px;
+             font-size:12px;
            ">
       </div>
     `;
@@ -165,7 +165,7 @@ looker.plugins.visualizations.add({
                 border-bottom:none;        /* no line under the group row */
                 white-space:nowrap;
                 font-family:'Roboto','Helvetica Neue',Helvetica,Arial,sans-serif;
-                font-size:14px;
+                font-size:13px;
                 font-weight:600;
           ">
             &nbsp;
@@ -191,7 +191,7 @@ looker.plugins.visualizations.add({
               text-align:center;
               white-space:nowrap;
               font-family:'Roboto','Helvetica Neue',Helvetica,Arial,sans-serif;
-              font-size:14px;
+              font-size:13px;
               font-weight:600;
         ">
           ${this._escapeHTML(g.label)}
@@ -218,7 +218,7 @@ looker.plugins.visualizations.add({
               text-align:left;
               white-space:nowrap;
               font-family:'Roboto','Helvetica Neue',Helvetica,Arial,sans-serif;
-              font-size:14px;
+              font-size:13px;
               font-weight:600;
         ">
           ${this._escapeHTML(label)}
@@ -251,7 +251,7 @@ looker.plugins.visualizations.add({
               cursor:pointer;
               white-space:nowrap;
               font-family:'Roboto','Helvetica Neue',Helvetica,Arial,sans-serif;
-              font-size:13px;
+              font-size:12px;
               font-weight:400;
               color:#222;
             ">
