@@ -1,6 +1,6 @@
 looker.plugins.visualizations.add({
   id: "simple_html_grid_crossfilter",
-  label: "Simple Grid (cross-filter + groups + labels + sorting)",
+  label: "Simple Grid (cross-filter + groups + labels + sorting + widths)",
   supports: { crossfilter: true },
 
   options: {
@@ -48,6 +48,21 @@ looker.plugins.visualizations.add({
         { Descending: "desc" }
       ],
       default: "asc"
+    },
+    default_column_width: {
+      label: "Default column width (px)",
+      type: "number",
+      default: 110
+    },
+    column_widths_json: {
+      label: "Column Widths JSON (field: width_px)",
+      type: "string",
+      default: ""
+      // Example:
+      // {
+      //   "inventory.stock_item_id": 150,
+      //   "inventory.dealer_id": 80
+      // }
     }
   },
 
@@ -75,7 +90,6 @@ looker.plugins.visualizations.add({
         #simple_grid_container table.simple-grid {
           border-collapse: collapse;
           width: 100%;
-          min-width: 100%;
         }
         #simple_grid_container table.simple-grid tbody tr:nth-child(even) {
           background: #f7f8fd;
@@ -169,6 +183,32 @@ looker.plugins.visualizations.add({
     } catch (e) {
       labelOverrides = {};
     }
+
+    // ---- Parse column widths JSON ----
+    let widthMap = {};
+    try {
+      widthMap = config.column_widths_json
+        ? (JSON.parse(config.column_widths_json) || {})
+        : {};
+    } catch (e) {
+      widthMap = {};
+    }
+    const defaultColWidth =
+      Number.isFinite(+config.default_column_width) && +config.default_column_width > 0
+        ? +config.default_column_width
+        : 110;
+
+    const getColWidth = (fieldName) => {
+      const w = widthMap[fieldName];
+      const n = Number(w);
+      if (Number.isFinite(n) && n > 0) return n;
+      return defaultColWidth;
+    };
+
+    const widthStyleFor = (fieldName) => {
+      const w = getColWidth(fieldName);
+      return `min-width:${w}px;max-width:${w}px;`;
+    };
 
     // ---- Determine default sort state (only once) ----
     if (!this._sortState && config.enable_sorting !== false && config.default_sort_field) {
@@ -293,6 +333,7 @@ looker.plugins.visualizations.add({
       }
 
       const cursor = config.enable_sorting === false ? "default" : "pointer";
+      const widthStyle = widthStyleFor(f.name);
 
       html += `
         <th 
@@ -311,6 +352,7 @@ looker.plugins.visualizations.add({
               font-size:13px;
               font-weight:600;
               cursor:${cursor};
+              ${widthStyle}
         ">
           ${this._escapeHTML(label)}
         </th>`;
@@ -330,6 +372,7 @@ looker.plugins.visualizations.add({
         const raw   = getRaw(row, field.name);
         const disp  = getRendered(row, field.name);
         const safe  = this._escapeHTML(disp);
+        const widthStyle = widthStyleFor(field.name);
 
         html += `
           <td
@@ -344,6 +387,7 @@ looker.plugins.visualizations.add({
               font-size:12px;
               font-weight:400;
               color:#222;
+              ${widthStyle}
             ">
             ${safe}
           </td>`;
@@ -373,7 +417,8 @@ looker.plugins.visualizations.add({
           if (!viz._sortState || viz._sortState.fieldName !== fieldName) {
             viz._sortState = { fieldName, direction: "asc" };
           } else {
-            viz._sortState.direction = viz._sortState.direction === "asc" ? "desc" : "asc";
+            viz._sortState.direction =
+              viz._sortState.direction === "asc" ? "desc" : "asc";
           }
 
           // Re-render with the same data & config
