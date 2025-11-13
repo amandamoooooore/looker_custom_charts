@@ -1,6 +1,6 @@
 looker.plugins.visualizations.add({
   id: "simple_html_grid_crossfilter",
-  label: "Simple Grid (cross-filter + groups + labels)",
+  label: "Simple Grid (cross-filter + groups + labels + sorting)",
   supports: { crossfilter: true },
 
   options: {
@@ -28,11 +28,33 @@ looker.plugins.visualizations.add({
       //   "inventory.stock_item_id": "Stock Item ID",
       //   "inventory.dealer_id": "DID"
       // }
+    },
+    enable_sorting: {
+      label: "Enable column sorting",
+      type: "boolean",
+      default: true
+    },
+    default_sort_field: {
+      label: "Default sort field (fully qualified name)",
+      type: "string",
+      default: ""
+    },
+    default_sort_direction: {
+      label: "Default sort direction",
+      type: "string",
+      display: "select",
+      values: [
+        { Ascending: "asc" },
+        { Descending: "desc" }
+      ],
+      default: "asc"
     }
   },
 
+  // remembers last sort state { fieldName, direction }
+  _sortState: null,
+
   create(element) {
-    // Basic container for the grid
     element.innerHTML = `
       <div id="simple_grid_container"
            style="
@@ -78,6 +100,13 @@ looker.plugins.visualizations.add({
 
   async updateAsync(data, element, config, queryResponse, details, done) {
     const container = document.getElementById("simple_grid_container");
+
+    // remember last args so we can re-render on header click
+    this._lastData = data;
+    this._lastElement = element;
+    this._lastConfig = config;
+    this._lastQueryResponse = queryResponse;
+    this._lastDetails = details;
 
     const fields = queryResponse.fields || {};
     const dims   = fields.dimension_like || [];
@@ -139,6 +168,55 @@ looker.plugins.visualizations.add({
         : {};
     } catch (e) {
       labelOverrides = {};
+    }
+
+    // ---- Determine default sort state (only once) ----
+    if (!this._sortState && config.enable_sorting !== false && config.default_sort_field) {
+      const exists = allFields.find(f => f.name === config.default_sort_field);
+      if (exists) {
+        const dir = (config.default_sort_direction || "asc").toLowerCase() === "desc" ? "desc" : "asc";
+        this._sortState = {
+          fieldName: exists.name,
+          direction: dir
+        };
+      }
+    }
+
+    // ---- Prepare sorted rows (keep original index for filtering) ----
+    let rowsWithIndex = data.map((row, originalIndex) => ({ row, originalIndex }));
+
+    if (config.enable_sorting !== false && this._sortState && this._sortState.fieldName) {
+      const sortField = this._sortState.fieldName;
+      const dir = this._sortState.direction === "desc" ? "desc" : "asc";
+
+      const getSortValue = (row) => {
+        const cell = row[sortField];
+        if (!cell || !("value" in cell)) return null;
+        const v = cell.value;
+
+        if (typeof v === "number") return v;
+        const n = Number(v);
+        if (!Number.isNaN(n)) return n;
+        return String(v).toLowerCase();
+      };
+
+      rowsWithIndex.sort((a, b) => {
+        const va = getSortValue(a.row);
+        const vb = getSortValue(b.row);
+
+        const na = (va === null || va === "");
+        const nb = (vb === null || vb === "");
+        if (na && nb) return 0;
+        if (na) return 1;
+        if (nb) return -1;
+
+        if (typeof va === "number" && typeof vb === "number") {
+          return dir === "asc" ? va - vb : vb - va;
+        }
+        return dir === "asc"
+          ? String(va).localeCompare(String(vb))
+          : String(vb).localeCompare(String(va));
+      });
     }
 
     // ---- Build the table HTML ----
@@ -205,9 +283,21 @@ looker.plugins.visualizations.add({
     html += "<tr>";
     for (const f of allFields) {
       const override = labelOverrides[f.name];
-      const label = override || f.label_short || f.label || f.name;
+      let label = override || f.label_short || f.label || f.name;
+
+      // Add sort arrow if this is the sorted column
+      if (config.enable_sorting !== false &&
+          this._sortState &&
+          this._sortState.fieldName === f.name) {
+        label += this._sortState.direction === "asc" ? " ▲" : " ▼";
+      }
+
+      const cursor = config.enable_sorting === false ? "default" : "pointer";
+
       html += `
-        <th style="
+        <th 
+          data-sort-field="${this._escapeHTML(f.name)}"
+          style="
               position:sticky;
               top:26px;
               z-index:4;
@@ -220,6 +310,7 @@ looker.plugins.visualizations.add({
               font-family:'Roboto','Helvetica Neue',Helvetica,Arial,sans-serif;
               font-size:13px;
               font-weight:600;
+              cursor:${cursor};
         ">
           ${this._escapeHTML(label)}
         </th>`;
@@ -231,8 +322,8 @@ looker.plugins.visualizations.add({
         <tbody>
     `;
 
-    // ========== DATA ROWS ==========
-    data.forEach((row, rowIndex) => {
+    // ========== DATA ROWS (sorted) ==========
+    rowsWithIndex.forEach(({ row, originalIndex }) => {
       html += "<tr>";
 
       allFields.forEach(field => {
@@ -242,9 +333,8 @@ looker.plugins.visualizations.add({
 
         html += `
           <td
-            data-row-index="${rowIndex}"
+            data-orig-index="${originalIndex}"
             data-field-name="${this._escapeHTML(field.name)}"
-            data-raw-value="${raw === null || raw === undefined ? "" : this._escapeHTML(String(raw))}"
             style="
               padding:6px 10px;
               border-bottom:1px solid #f0f0f0;
@@ -271,16 +361,44 @@ looker.plugins.visualizations.add({
 
     const viz = this;
 
-    // ========== CLICK HANDLER FOR CROSS-FILTER ==========
+    // ========== CLICK HANDLER (sorting + cross-filter) ==========
     container.onclick = function (evt) {
+      const th = evt.target.closest("th[data-sort-field]");
       const cell = evt.target.closest("td");
+
+      // --- Header click: sorting ---
+      if (th && config.enable_sorting !== false) {
+        const fieldName = th.getAttribute("data-sort-field");
+        if (fieldName) {
+          if (!viz._sortState || viz._sortState.fieldName !== fieldName) {
+            viz._sortState = { fieldName, direction: "asc" };
+          } else {
+            viz._sortState.direction = viz._sortState.direction === "asc" ? "desc" : "asc";
+          }
+
+          // Re-render with the same data & config
+          if (viz._lastData && viz._lastElement && viz._lastQueryResponse) {
+            viz.updateAsync(
+              viz._lastData,
+              viz._lastElement,
+              viz._lastConfig,
+              viz._lastQueryResponse,
+              viz._lastDetails || {},
+              function () {}
+            );
+          }
+        }
+        return;
+      }
+
+      // --- Cell click: cross-filter ---
       if (!cell) return;
       if (!filterFieldName) return;
 
-      const rowIndex = Number(cell.getAttribute("data-row-index"));
-      if (!Number.isInteger(rowIndex) || rowIndex < 0 || rowIndex >= data.length) return;
+      const origIndex = Number(cell.getAttribute("data-orig-index"));
+      if (!Number.isInteger(origIndex) || origIndex < 0 || origIndex >= (viz._lastData || []).length) return;
 
-      const row = data[rowIndex];
+      const row = viz._lastData[origIndex];
       const rawForFilter = getRaw(row, filterFieldName);
       const displayForFilter = getRendered(row, filterFieldName);
 
