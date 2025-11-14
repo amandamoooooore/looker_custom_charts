@@ -1,6 +1,6 @@
 looker.plugins.visualizations.add({
   id: "simple_html_grid_crossfilter",
-  label: "Simple Grid (cross-filter + groups + labels + sorting + widths)",
+  label: "Simple Grid (cross-filter + groups + labels + sorting + widths + hide)",
   supports: { crossfilter: true },
 
   options: {
@@ -63,6 +63,13 @@ looker.plugins.visualizations.add({
       //   "inventory.stock_item_id": 150,
       //   "inventory.dealer_id": 80
       // }
+    },
+    hidden_fields: {
+      label: "Hidden fields (comma/newline separated)",
+      type: "string",
+      default: ""
+      // Example:
+      // inventory.stock_item_id, inventory.dealer_id
     }
   },
 
@@ -112,6 +119,17 @@ looker.plugins.visualizations.add({
       .replace(/'/g, "&#39;");
   },
 
+  _parseHiddenSet(str) {
+    const set = new Set();
+    if (!str) return set;
+    String(str)
+      .split(/[\n,]/)
+      .map(s => s.trim())
+      .filter(Boolean)
+      .forEach(f => set.add(f));
+    return set;
+  },
+
   async updateAsync(data, element, config, queryResponse, details, done) {
     const container = document.getElementById("simple_grid_container");
 
@@ -136,6 +154,16 @@ looker.plugins.visualizations.add({
 
     if (!data || !data.length) {
       container.innerHTML = "<div style='padding:12px;color:#666'>No data.</div>";
+      done();
+      return;
+    }
+
+    // Hidden fields set (for display only)
+    const hiddenSet = this._parseHiddenSet(config.hidden_fields || "");
+    const visibleFields = allFields.filter(f => !hiddenSet.has(f.name));
+
+    if (!visibleFields.length) {
+      container.innerHTML = "<div style='padding:12px;color:#666'>All fields are hidden. Show at least one.</div>";
       done();
       return;
     }
@@ -172,7 +200,7 @@ looker.plugins.visualizations.add({
     } catch (e) {
       groupByField = {};
     }
-    const colGroups = allFields.map(f => groupByField[f.name] || null);
+    const colGroups = visibleFields.map(f => groupByField[f.name] || null);
 
     // ---- Parse column labels JSON (optional) ----
     let labelOverrides = {};
@@ -212,7 +240,7 @@ looker.plugins.visualizations.add({
 
     // ---- Determine default sort state (only once) ----
     if (!this._sortState && config.enable_sorting !== false && config.default_sort_field) {
-      const exists = allFields.find(f => f.name === config.default_sort_field);
+      const exists = visibleFields.find(f => f.name === config.default_sort_field);
       if (exists) {
         const dir = (config.default_sort_direction || "asc").toLowerCase() === "desc" ? "desc" : "asc";
         this._sortState = {
@@ -268,7 +296,7 @@ looker.plugins.visualizations.add({
     // ========== GROUP HEADER ROW (top) ==========
     html += "<tr>";
 
-    for (let i = 0; i < allFields.length; ) {
+    for (let i = 0; i < visibleFields.length; ) {
       const g = colGroups[i];
       if (!g) {
         // Ungrouped column – single blank cell
@@ -294,9 +322,13 @@ looker.plugins.visualizations.add({
         continue;
       }
 
-      // Count contiguous columns in the same group
+      // Count contiguous visible columns in the same group
       let j = i + 1;
-      while (j < allFields.length && colGroups[j] && colGroups[j].label === g.label) j++;
+      while (
+        j < visibleFields.length &&
+        colGroups[j] &&
+        colGroups[j].label === g.label
+      ) j++;
       const colspan = j - i;
 
       html += `
@@ -325,7 +357,7 @@ looker.plugins.visualizations.add({
 
     // ========== COLUMN HEADER ROW (second sticky row) ==========
     html += "<tr>";
-    for (const f of allFields) {
+    for (const f of visibleFields) {
       const override = labelOverrides[f.name];
       let label = override || f.label_short || f.label || f.name;
 
@@ -374,7 +406,7 @@ looker.plugins.visualizations.add({
     rowsWithIndex.forEach(({ row, originalIndex }) => {
       html += "<tr>";
 
-      allFields.forEach(field => {
+      visibleFields.forEach(field => {
         const raw   = getRaw(row, field.name);
         const disp  = getRendered(row, field.name);
         const safe  = this._escapeHTML(disp);
