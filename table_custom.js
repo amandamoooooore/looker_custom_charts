@@ -1,6 +1,6 @@
 looker.plugins.visualizations.add({
   id: "simple_html_grid_crossfilter",
-  label: "Simple Grid (cross-filter + groups + labels + sorting + widths + hide)",
+  label: "Simple Grid (cross-filter + groups + labels + sorting + widths + hide + highlight)",
   supports: { crossfilter: true },
 
   options: {
@@ -13,21 +13,11 @@ looker.plugins.visualizations.add({
       label: "Groups JSON (optional)",
       type: "string",
       default: ""
-      // Example:
-      // [
-      //   { "label":"Outcome", "color":"#2ecc71",
-      //     "fields":["inventory.sold_price","inventory.is_confirmed"] }
-      // ]
     },
     column_labels_json: {
       label: "Column Labels JSON (optional)",
       type: "string",
       default: ""
-      // Example:
-      // {
-      //   "inventory.stock_item_id": "Stock Item ID",
-      //   "inventory.dealer_id": "DID"
-      // }
     },
     enable_sorting: {
       label: "Enable column sorting",
@@ -58,23 +48,24 @@ looker.plugins.visualizations.add({
       label: "Column Widths JSON (field: width_px)",
       type: "string",
       default: ""
-      // Example:
-      // {
-      //   "inventory.stock_item_id": 150,
-      //   "inventory.dealer_id": 80
-      // }
     },
     hidden_fields: {
       label: "Hidden fields (comma/newline separated)",
       type: "string",
       default: ""
-      // Example:
-      // inventory.stock_item_id, inventory.dealer_id
+    },
+    highlight_color: {
+      label: "Selected Row Highlight Color",
+      type: "string",
+      default: "#EB0037"
     }
   },
 
   // remembers last sort state { fieldName, direction }
   _sortState: null,
+
+  // remembers which original row index was last clicked
+  _selectedRowIndex: null,
 
   create(element) {
     element.innerHTML = `
@@ -168,7 +159,7 @@ looker.plugins.visualizations.add({
       return;
     }
 
-    // Determine which field we’ll filter on when a cell is clicked
+    // Determine which field to filter on when a cell is clicked
     let filterFieldName = (config.click_field || "").trim();
     if (!filterFieldName && dims[0]) {
       filterFieldName = dims[0].name; // default = first dimension
@@ -402,9 +393,16 @@ looker.plugins.visualizations.add({
         <tbody>
     `;
 
+    const highlightColor = (config.highlight_color || "#EB0037").trim() || "#EB0037";
+
     // ========== DATA ROWS (sorted) ==========
     rowsWithIndex.forEach(({ row, originalIndex }) => {
-      html += "<tr>";
+      const isSelected = (originalIndex === this._selectedRowIndex);
+      const rowStyle = isSelected
+        ? `background:${this._escapeHTML(highlightColor)};color:#ffffff;`
+        : "";
+
+      html += `<tr style="${rowStyle}">`;
 
       visibleFields.forEach(field => {
         const raw   = getRaw(row, field.name);
@@ -426,7 +424,7 @@ looker.plugins.visualizations.add({
               font-family:'Roboto','Helvetica Neue',Helvetica,Arial,sans-serif;
               font-size:12px;
               font-weight:400;
-              color:#222;
+              color:inherit;
               ${widthStyle}
             ">
             ${safe}
@@ -482,6 +480,9 @@ looker.plugins.visualizations.add({
 
       const origIndex = Number(cell.getAttribute("data-orig-index"));
       if (!Number.isInteger(origIndex) || origIndex < 0 || origIndex >= (viz._lastData || []).length) return;
+
+      // store selection so row can be highlighted on next render
+      viz._selectedRowIndex = origIndex;
 
       const row = viz._lastData[origIndex];
       const rawForFilter = getRaw(row, filterFieldName);
