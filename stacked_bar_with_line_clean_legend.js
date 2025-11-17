@@ -372,7 +372,7 @@ looker.plugins.visualizations.add({
         rightAxis.setAttribute("text-anchor", "middle");
         rightAxis.setAttribute(
           "transform",
-          `translate(${chartW + margin.right - 20},${chartH / 2}) rotate(90)`
+          `translate(${chartW + margin.right - 5},${chartH / 2}) rotate(90)`
         );
         rootG.appendChild(rightAxis);
       }
