@@ -133,6 +133,7 @@ looker.plugins.visualizations.add({
     return fields.find(f => f.name === name);
   },
 
+  // "Nice" scale like Highcharts
   _niceScale(min, max, maxTicks) {
     if (max === min) max = min + 1;
     const range = max - min;
@@ -165,7 +166,6 @@ looker.plugins.visualizations.add({
 
   updateAsync(data, element, config, queryResponse, details, done) {
     this._lastArgs = [data, element, config, queryResponse];
-
     try {
       this._render(data, element, config, queryResponse);
     } finally {
@@ -332,24 +332,12 @@ looker.plugins.visualizations.add({
       txt.setAttribute("text-anchor", "end");
       txt.setAttribute("font-size", "12");
       txt.setAttribute("fill", "#666");
+      txt.setAttribute("class", "y-left-tick");
       rootG.appendChild(txt);
     }
 
-    // Left axis title (vertical, centered)
-    if (config.yaxis_left_title) {
-      const leftAxis = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      leftAxis.textContent = config.yaxis_left_title;
-      leftAxis.setAttribute("font-size", "12");
-      leftAxis.setAttribute("text-anchor", "middle");
-      leftAxis.setAttribute(
-        "transform",
-        `translate(${-40},${chartH / 2}) rotate(-90)`
-      );
-      rootG.appendChild(leftAxis);
-    }
-
     // --------------------------------------------------------
-    // Right Y axis labels + title
+    // Right Y axis labels
     // --------------------------------------------------------
     if (lineSeries) {
       for (let v = rightScale.niceMin; v <= rightScale.niceMax + rightScale.tickSpacing / 2; v += rightScale.tickSpacing) {
@@ -362,20 +350,56 @@ looker.plugins.visualizations.add({
         txt.setAttribute("text-anchor", "start");
         txt.setAttribute("font-size", "12");
         txt.setAttribute("fill", "#666");
+        txt.setAttribute("class", "y-right-tick");
         rootG.appendChild(txt);
       }
+    }
 
-      if (config.yaxis_right_title) {
-        const rightAxis = document.createElementNS("http://www.w3.org/2000/svg", "text");
-        rightAxis.textContent = config.yaxis_right_title;
-        rightAxis.setAttribute("font-size", "12");
-        rightAxis.setAttribute("text-anchor", "middle");
-        rightAxis.setAttribute(
-          "transform",
-          `translate(${chartW + 40},${chartH / 2}) rotate(90)`
-        );
-        rootG.appendChild(rightAxis);
-      }
+    // --------------------------------------------------------
+    // Axis titles – after ticks so we can measure label width
+    // --------------------------------------------------------
+    // Left axis title (vertical, spaced from tick labels)
+    if (config.yaxis_left_title) {
+      let maxTickWidth = 0;
+      svg.querySelectorAll(".y-left-tick").forEach(t => {
+        const bbox = t.getBBox();
+        if (bbox && bbox.width > maxTickWidth) maxTickWidth = bbox.width;
+      });
+
+      const leftAxis = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      leftAxis.textContent = config.yaxis_left_title;
+      leftAxis.setAttribute("font-size", "12");
+      leftAxis.setAttribute("text-anchor", "middle");
+
+      const leftX = -(maxTickWidth + 20); // 20px gap from longest label
+
+      leftAxis.setAttribute(
+        "transform",
+        `translate(${leftX},${chartH / 2}) rotate(-90)`
+      );
+      rootG.appendChild(leftAxis);
+    }
+
+    // Right axis title (vertical, spaced from tick labels)
+    if (lineSeries && config.yaxis_right_title) {
+      let maxTickWidth = 0;
+      svg.querySelectorAll(".y-right-tick").forEach(t => {
+        const bbox = t.getBBox();
+        if (bbox && bbox.width > maxTickWidth) maxTickWidth = bbox.width;
+      });
+
+      const rightAxis = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      rightAxis.textContent = config.yaxis_right_title;
+      rightAxis.setAttribute("font-size", "12");
+      rightAxis.setAttribute("text-anchor", "middle");
+
+      const rightX = chartW + maxTickWidth + 20; // 20px gap from longest label
+
+      rightAxis.setAttribute(
+        "transform",
+        `translate(${rightX},${chartH / 2}) rotate(90)`
+      );
+      rootG.appendChild(rightAxis);
     }
 
     // --------------------------------------------------------
