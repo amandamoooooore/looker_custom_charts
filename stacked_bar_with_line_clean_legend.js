@@ -1,36 +1,22 @@
-// --- load a script once, correctly waiting for onload ---
+// --- load a script once, sharing a single promise per URL ---
 const _scriptPromises = {};
 
 function loadScriptOnce(src) {
-  // Re-use the same promise for every call to this src
+  // If we've already started loading (or finished), reuse that promise
   if (_scriptPromises[src]) return _scriptPromises[src];
 
   _scriptPromises[src] = new Promise((resolve, reject) => {
-    // If a script tag already exists, hook onto its load/error instead of
-    // resolving immediately (it might still be loading)
-    let existing = document.querySelector('script[src="' + src + '"]');
+    // If a script tag already exists (maybe added by something else), assume it's loaded/usable
+    const existing = document.querySelector('script[src="' + src + '"]');
     if (existing) {
-      if (existing.dataset.loaded === "true") {
-        resolve();
-      } else {
-        existing.addEventListener("load", () => {
-          existing.dataset.loaded = "true";
-          resolve();
-        });
-        existing.addEventListener("error", () => {
-          reject(new Error("Failed to load " + src));
-        });
-      }
+      resolve();
       return;
     }
 
-    // Create a new script tag
+    // Otherwise create it
     const s = document.createElement("script");
     s.src = src;
-    s.onload = () => {
-      s.dataset.loaded = "true";
-      resolve();
-    };
+    s.onload = resolve;
     s.onerror = () => reject(new Error("Failed to load " + src));
     document.head.appendChild(s);
   });
@@ -109,18 +95,16 @@ looker.plugins.visualizations.add({
   },
 
   create: function (element, config) {
-    // Create a unique container for this instance
+    // Per-instance container (no fixed id)
     element.innerHTML = "";
     const container = document.createElement("div");
     container.style.width = "100%";
     container.style.height = "100%";
-    // no need for a fixed id; we store the node itself
     element.appendChild(container);
 
-    // Save a reference to this container
     this._container = container;
 
-    // Load Highcharts once
+    // Load Highcharts once (shared via _scriptPromises)
     this._hcReady = Promise.resolve()
       .then(() => loadScriptOnce("https://code.highcharts.com/highcharts.js"))
       .then(() => loadScriptOnce("https://code.highcharts.com/modules/exporting.js"))
@@ -134,20 +118,20 @@ looker.plugins.visualizations.add({
     return fields.find(f => f.name === name);
   },
 
-  // Use updateAsync + done so the renderer knows when we're finished
+  // updateAsync so Looker knows when rendering is finished
   updateAsync: function (data, element, config, queryResponse, details, done) {
     const self = this;
     const container = this._container;
 
     if (!container) {
       console.error("No container found for stacked_bar_with_line_clean_legend.");
-      if (typeof done === "function") done();
+      if (done) done();
       return;
     }
 
     if (!this._hcReady) {
       console.error("Highcharts not initialized (_hcReady missing).");
-      if (typeof done === "function") done();
+      if (done) done();
       return;
     }
 
@@ -155,8 +139,8 @@ looker.plugins.visualizations.add({
       .then(function () {
         try {
           if (typeof Highcharts === "undefined") {
-            console.error("Highcharts is undefined even after _hcReady resolved.");
-            if (typeof done === "function") done();
+            console.error("Highcharts is undefined after _hcReady.");
+            if (done) done();
             return;
           }
 
@@ -275,7 +259,6 @@ looker.plugins.visualizations.add({
                 stackLabels: {
                   enabled: !!config.show_stack_totals && cleanedStacked.length > 0,
                   style: { fontWeight: "bold", color: "#666" },
-                  // Hide label if the total is 0 or null
                   formatter: function () {
                     const v = this.total;
                     return (v == null || v === 0)
@@ -303,11 +286,11 @@ looker.plugins.visualizations.add({
           console.error("Error rendering stacked_bar_with_line_clean_legend:", e);
         }
 
-        if (typeof done === "function") done();
+        if (done) done();
       })
       .catch(function (e) {
         console.error("Error in _hcReady or rendering:", e);
-        if (typeof done === "function") done();
+        if (done) done();
       });
   }
 });
