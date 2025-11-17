@@ -104,7 +104,7 @@ looker.plugins.visualizations.add({
 
     this._container = container;
 
-    // Load Highcharts once (shared via _scriptPromises)
+    // Pre-kick script loading for dashboard usage
     this._hcReady = Promise.resolve()
       .then(() => loadScriptOnce("https://code.highcharts.com/highcharts.js"))
       .then(() => loadScriptOnce("https://code.highcharts.com/modules/exporting.js"))
@@ -121,18 +121,27 @@ looker.plugins.visualizations.add({
   // updateAsync so Looker knows when rendering is finished
   updateAsync: function (data, element, config, queryResponse, details, done) {
     const self = this;
+
+    // --- SAFETY: ensure we have a container even if create() never ran in this context ---
+    if (!this._container) {
+      element.innerHTML = "";
+      const container = document.createElement("div");
+      container.style.width = "100%";
+      container.style.height = "100%";
+      element.appendChild(container);
+      this._container = container;
+    }
     const container = this._container;
 
-    if (!container) {
-      console.error("No container found for stacked_bar_with_line_clean_legend.");
-      if (done) done();
-      return;
-    }
-
+    // --- SAFETY: ensure we have a script-loading promise in this context ---
     if (!this._hcReady) {
-      console.error("Highcharts not initialized (_hcReady missing).");
-      if (done) done();
-      return;
+      this._hcReady = Promise.resolve()
+        .then(() => loadScriptOnce("https://code.highcharts.com/highcharts.js"))
+        .then(() => loadScriptOnce("https://code.highcharts.com/modules/exporting.js"))
+        .then(() => loadScriptOnce("https://code.highcharts.com/modules/accessibility.js"))
+        .catch(e => {
+          console.error("Error loading Highcharts scripts in updateAsync:", e);
+        });
     }
 
     this._hcReady
@@ -259,6 +268,7 @@ looker.plugins.visualizations.add({
                 stackLabels: {
                   enabled: !!config.show_stack_totals && cleanedStacked.length > 0,
                   style: { fontWeight: "bold", color: "#666" },
+                  // Hide label if the total is 0 or null
                   formatter: function () {
                     const v = this.total;
                     return (v == null || v === 0)
@@ -277,7 +287,7 @@ looker.plugins.visualizations.add({
             tooltip: { shared: true },
             plotOptions: {
               column: { stacking: "normal", borderWidth: 0 },
-              series: { animation: false }
+              series: { animation: false } // animations off is recommended for exports
             },
             series: finalSeries
           });
