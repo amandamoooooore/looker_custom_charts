@@ -133,7 +133,6 @@ looker.plugins.visualizations.add({
     return fields.find(f => f.name === name);
   },
 
-  // Highcharts-style "nice" scale
   _niceScale(min, max, maxTicks) {
     if (max === min) max = min + 1;
     const range = max - min;
@@ -164,7 +163,6 @@ looker.plugins.visualizations.add({
     return { niceMin, niceMax, tickSpacing };
   },
 
-  // Thin wrapper: save args for resize + call renderer
   updateAsync(data, element, config, queryResponse, details, done) {
     this._lastArgs = [data, element, config, queryResponse];
 
@@ -175,12 +173,10 @@ looker.plugins.visualizations.add({
     }
   },
 
-  // All rendering logic lives here so we can call it from updateAsync and ResizeObserver
   _render(data, element, config, queryResponse) {
     const svg = this._svg;
     const legend = this._legend;
     const tooltip = this._tooltip;
-
     if (!svg || !legend || !tooltip) return;
 
     svg.innerHTML = "";
@@ -263,13 +259,12 @@ looker.plugins.visualizations.add({
         }
       : null;
 
-    // ---- Filter empty stacked
     const treatZero = !!config.treat_zero_as_empty;
     const isEmpty = arr => !arr.some(v => v != null && (!treatZero ? true : v !== 0));
     const visibleStacked = stackedSeries.filter(s => !isEmpty(s.data));
 
     // --------------------------------------------------------
-    // LEGEND (centered, colors match bars/line)
+    // LEGEND
     // --------------------------------------------------------
     const legendSeries = visibleStacked.concat(lineSeries ? [lineSeries] : []);
     legendSeries.forEach(s => {
@@ -335,22 +330,26 @@ looker.plugins.visualizations.add({
       txt.setAttribute("x", -8);
       txt.setAttribute("y", y + 4);
       txt.setAttribute("text-anchor", "end");
-      txt.setAttribute("font-size", "10");
+      txt.setAttribute("font-size", "12");
       txt.setAttribute("fill", "#666");
       rootG.appendChild(txt);
     }
 
+    // Left axis title (vertical, centered)
     if (config.yaxis_left_title) {
       const leftAxis = document.createElementNS("http://www.w3.org/2000/svg", "text");
       leftAxis.textContent = config.yaxis_left_title;
-      leftAxis.setAttribute("x", -margin.left + 5);
-      leftAxis.setAttribute("y", -10);
       leftAxis.setAttribute("font-size", "12");
+      leftAxis.setAttribute("text-anchor", "middle");
+      leftAxis.setAttribute(
+        "transform",
+        `translate(${-margin.left + 20},${chartH / 2}) rotate(-90)`
+      );
       rootG.appendChild(leftAxis);
     }
 
     // --------------------------------------------------------
-    // Right Y axis labels
+    // Right Y axis labels + title
     // --------------------------------------------------------
     if (lineSeries) {
       for (let v = rightScale.niceMin; v <= rightScale.niceMax + rightScale.tickSpacing / 2; v += rightScale.tickSpacing) {
@@ -361,7 +360,7 @@ looker.plugins.visualizations.add({
         txt.setAttribute("x", chartW + 8);
         txt.setAttribute("y", y + 4);
         txt.setAttribute("text-anchor", "start");
-        txt.setAttribute("font-size", "10");
+        txt.setAttribute("font-size", "12");
         txt.setAttribute("fill", "#666");
         rootG.appendChild(txt);
       }
@@ -369,30 +368,33 @@ looker.plugins.visualizations.add({
       if (config.yaxis_right_title) {
         const rightAxis = document.createElementNS("http://www.w3.org/2000/svg", "text");
         rightAxis.textContent = config.yaxis_right_title;
-        rightAxis.setAttribute("x", chartW + 10);
-        rightAxis.setAttribute("y", -10);
         rightAxis.setAttribute("font-size", "12");
+        rightAxis.setAttribute("text-anchor", "middle");
+        rightAxis.setAttribute(
+          "transform",
+          `translate(${chartW + margin.right - 20},${chartH / 2}) rotate(90)`
+        );
         rootG.appendChild(rightAxis);
       }
     }
 
     // --------------------------------------------------------
-    // X-axis labels (rotate around left edge so full date stays inside)
+    // X-axis labels (rotated)
     // --------------------------------------------------------
     categories.forEach((cat, i) => {
-      const xBase = margin.left + i * xStep + xStep * 0.1; // left edge of bar
+      const xBase = margin.left + i * xStep + xStep * 0.1;
       const yBase = height - 5;
 
       const txt = document.createElementNS("http://www.w3.org/2000/svg", "text");
       txt.textContent = cat;
-      txt.setAttribute("font-size", "11");
+      txt.setAttribute("font-size", "12");
       txt.setAttribute("text-anchor", "start");
       txt.setAttribute("transform", `translate(${xBase},${yBase}) rotate(-45)`);
       svg.appendChild(txt);
     });
 
     // --------------------------------------------------------
-    // Stacked bars (bottom-up, last stacked series at base)
+    // Stacked bars
     // --------------------------------------------------------
     const stackedOrder = [...visibleStacked].reverse();
 
@@ -443,14 +445,14 @@ looker.plugins.visualizations.add({
         txt.setAttribute("x", i * xStep + xStep / 2);
         txt.setAttribute("y", y);
         txt.setAttribute("text-anchor", "middle");
-        txt.setAttribute("font-size", "11");
+        txt.setAttribute("font-size", "12");
         txt.setAttribute("fill", "#333");
         rootG.appendChild(txt);
       });
     }
 
     // --------------------------------------------------------
-    // Line series (red)
+    // Line series
     // --------------------------------------------------------
     if (lineSeries) {
       const points = lineSeries.data.map((v, i) => {
