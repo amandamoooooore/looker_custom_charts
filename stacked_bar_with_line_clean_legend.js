@@ -233,7 +233,7 @@ looker.plugins.visualizations.add({
           name: labelFor(lineField),
           data: data.map(r => Number(r[lineField.name].value) || 0),
           colorIndex: stackedSeries.length,
-          color: "#7e8080"
+          color: "#EB0037"
         }
       : null;
 
