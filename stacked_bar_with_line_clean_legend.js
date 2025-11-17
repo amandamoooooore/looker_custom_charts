@@ -1,13 +1,41 @@
-// --- load a script once ---
+// --- load a script once, correctly waiting for onload ---
+const _scriptPromises = {};
+
 function loadScriptOnce(src) {
-  return new Promise((resolve, reject) => {
-    if (document.querySelector('script[src="' + src + '"]')) return resolve();
+  // Re-use the same promise for every call to this src
+  if (_scriptPromises[src]) return _scriptPromises[src];
+
+  _scriptPromises[src] = new Promise((resolve, reject) => {
+    // If a script tag already exists, hook onto its load/error instead of
+    // resolving immediately (it might still be loading)
+    let existing = document.querySelector('script[src="' + src + '"]');
+    if (existing) {
+      if (existing.dataset.loaded === "true") {
+        resolve();
+      } else {
+        existing.addEventListener("load", () => {
+          existing.dataset.loaded = "true";
+          resolve();
+        });
+        existing.addEventListener("error", () => {
+          reject(new Error("Failed to load " + src));
+        });
+      }
+      return;
+    }
+
+    // Create a new script tag
     const s = document.createElement("script");
     s.src = src;
-    s.onload = resolve;
+    s.onload = () => {
+      s.dataset.loaded = "true";
+      resolve();
+    };
     s.onerror = () => reject(new Error("Failed to load " + src));
     document.head.appendChild(s);
   });
+
+  return _scriptPromises[src];
 }
 
 looker.plugins.visualizations.add({
@@ -86,13 +114,13 @@ looker.plugins.visualizations.add({
     const container = document.createElement("div");
     container.style.width = "100%";
     container.style.height = "100%";
-    container.id = "sbwl_chart_" + Math.floor(Math.random() * 1e9);
+    // no need for a fixed id; we store the node itself
     element.appendChild(container);
 
     // Save a reference to this container
     this._container = container;
 
-    // Load Highcharts once (no async/await)
+    // Load Highcharts once
     this._hcReady = Promise.resolve()
       .then(() => loadScriptOnce("https://code.highcharts.com/highcharts.js"))
       .then(() => loadScriptOnce("https://code.highcharts.com/modules/exporting.js"))
@@ -106,13 +134,18 @@ looker.plugins.visualizations.add({
     return fields.find(f => f.name === name);
   },
 
-  // IMPORTANT: use updateAsync + done (no async/await)
+  // Use updateAsync + done so the renderer knows when we're finished
   updateAsync: function (data, element, config, queryResponse, details, done) {
-    const container = this._container || element; // fallback just in case
     const self = this;
+    const container = this._container;
+
+    if (!container) {
+      console.error("No container found for stacked_bar_with_line_clean_legend.");
+      if (typeof done === "function") done();
+      return;
+    }
 
     if (!this._hcReady) {
-      // If for some reason _hcReady isn't set, avoid hanging the PDF renderer
       console.error("Highcharts not initialized (_hcReady missing).");
       if (typeof done === "function") done();
       return;
@@ -121,6 +154,12 @@ looker.plugins.visualizations.add({
     this._hcReady
       .then(function () {
         try {
+          if (typeof Highcharts === "undefined") {
+            console.error("Highcharts is undefined even after _hcReady resolved.");
+            if (typeof done === "function") done();
+            return;
+          }
+
           const dims = queryResponse.fields.dimension_like || [];
           const meas = queryResponse.fields.measure_like || [];
 
@@ -264,7 +303,6 @@ looker.plugins.visualizations.add({
           console.error("Error rendering stacked_bar_with_line_clean_legend:", e);
         }
 
-        // Always signal completion (even if render logic hit a recoverable error)
         if (typeof done === "function") done();
       })
       .catch(function (e) {
