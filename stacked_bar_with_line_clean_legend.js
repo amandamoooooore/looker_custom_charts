@@ -184,10 +184,11 @@ looker.plugins.visualizations.add({
       .map(n => this._fieldByName(meas, n))
       .filter(Boolean);
 
-    const stackedSeries = stackedFields.map(f => ({
+    const stackedSeries = stackedFields.map((f, idx) => ({
       field: f,
       name: labelFor(f),
-      data: data.map(r => Number(r[f.name].value) || 0)
+      data: data.map(r => Number(r[f.name].value) || 0),
+      colorIndex: idx
     }));
 
     // ---- Line series
@@ -295,24 +296,27 @@ looker.plugins.visualizations.add({
 
     // Re-do stacking per category for correct bottom-up layout
     for (let i = 0; i < categories.length; i++) {
-      let yBottom = chartH; // bottom inside plotting area
-
-      visibleStacked.forEach((series, sIdx) => {
+      let yBottom = chartH; // bottom of plotting area
+    
+      // reverse here so the *last* series is at the bottom (Store Visits)
+      const stackedOrder = [...visibleStacked].reverse();
+    
+      stackedOrder.forEach(series => {
         const val = series.data[i] || 0;
         if (val === 0 && treatZero) return;
-
+    
         const barHeight = (val / maxStack) * chartH;
         const yTop = yBottom - barHeight;
-
         const x = i * xStep + xStep * 0.1;
+    
         const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
         rect.setAttribute("x", x);
         rect.setAttribute("y", yTop);
         rect.setAttribute("width", xStep * 0.8);
         rect.setAttribute("height", barHeight);
-        rect.setAttribute("fill", palette[sIdx % palette.length]);
+        rect.setAttribute("fill", palette[series.colorIndex % palette.length]);
         rect.style.cursor = "pointer";
-
+    
         rect.addEventListener("mousemove", evt => {
           tooltip.style.display = "block";
           tooltip.style.left = evt.pageX + 10 + "px";
@@ -322,9 +326,9 @@ looker.plugins.visualizations.add({
         rect.addEventListener("mouseleave", () => {
           tooltip.style.display = "none";
         });
-
+    
         rootG.appendChild(rect);
-        yBottom = yTop;
+        yBottom = yTop; // next segment stacks on top
       });
     }
 
