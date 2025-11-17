@@ -115,6 +115,18 @@ looker.plugins.visualizations.add({
     this._svg = element.querySelector(".chart-svg");
     this._legend = element.querySelector(".legend");
     this._tooltip = element.querySelector(".svg-tooltip");
+
+    const root = element.querySelector(".svg-chart-root");
+
+    // Re-render on tile resize
+    if (window.ResizeObserver) {
+      this._resizeObserver = new ResizeObserver(() => {
+        if (this._lastArgs) {
+          this._render.apply(this, this._lastArgs);
+        }
+      });
+      this._resizeObserver.observe(root);
+    }
   },
 
   _fieldByName(fields, name) {
@@ -152,10 +164,24 @@ looker.plugins.visualizations.add({
     return { niceMin, niceMax, tickSpacing };
   },
 
+  // Thin wrapper: save args for resize + call renderer
   updateAsync(data, element, config, queryResponse, details, done) {
+    this._lastArgs = [data, element, config, queryResponse];
+
+    try {
+      this._render(data, element, config, queryResponse);
+    } finally {
+      if (done) done();
+    }
+  },
+
+  // All rendering logic lives here so we can call it from updateAsync and ResizeObserver
+  _render(data, element, config, queryResponse) {
     const svg = this._svg;
     const legend = this._legend;
     const tooltip = this._tooltip;
+
+    if (!svg || !legend || !tooltip) return;
 
     svg.innerHTML = "";
     legend.innerHTML = "";
@@ -225,7 +251,7 @@ looker.plugins.visualizations.add({
       color: palette[idx % palette.length] || "#999"
     }));
 
-    // ---- Line series
+    // ---- Line series (red)
     const lineField = this._fieldByName(meas, config.line_measure);
     const lineSeries = lineField
       ? {
@@ -243,7 +269,7 @@ looker.plugins.visualizations.add({
     const visibleStacked = stackedSeries.filter(s => !isEmpty(s.data));
 
     // --------------------------------------------------------
-    // LEGEND (centered, colors exactly match bars/line)
+    // LEGEND (centered, colors match bars/line)
     // --------------------------------------------------------
     const legendSeries = visibleStacked.concat(lineSeries ? [lineSeries] : []);
     legendSeries.forEach(s => {
@@ -424,7 +450,7 @@ looker.plugins.visualizations.add({
     }
 
     // --------------------------------------------------------
-    // Line series
+    // Line series (red)
     // --------------------------------------------------------
     if (lineSeries) {
       const points = lineSeries.data.map((v, i) => {
@@ -461,7 +487,5 @@ looker.plugins.visualizations.add({
         rootG.appendChild(circ);
       });
     }
-
-    done();
   }
 });
