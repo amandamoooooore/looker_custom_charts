@@ -88,12 +88,13 @@ looker.plugins.visualizations.add({
         .legend {
           display: flex;
           flex-wrap: wrap;
+          justify-content: center;  /* center the legend */
           margin-bottom: 4px;
         }
         .legend-item {
           display: flex;
           align-items: center;
-          margin-right: 12px;
+          margin: 0 10px 4px 10px;
           font-size: 12px;
           cursor: default;
         }
@@ -118,6 +119,39 @@ looker.plugins.visualizations.add({
 
   _fieldByName(fields, name) {
     return fields.find(f => f.name === name);
+  },
+
+  // "Nice" scale helper (Highcharts-like)
+  _niceScale(min, max, maxTicks) {
+    if (max === min) {
+      max = min + 1;
+    }
+    const range = max - min;
+
+    const niceNum = (rng, round) => {
+      const exponent = Math.floor(Math.log10(rng));
+      const fraction = rng / Math.pow(10, exponent);
+      let niceFraction;
+      if (round) {
+        if (fraction < 1.5) niceFraction = 1;
+        else if (fraction < 3) niceFraction = 2;
+        else if (fraction < 7) niceFraction = 5;
+        else niceFraction = 10;
+      } else {
+        if (fraction <= 1) niceFraction = 1;
+        else if (fraction <= 2) niceFraction = 2;
+        else if (fraction <= 5) niceFraction = 5;
+        else niceFraction = 10;
+      }
+      return niceFraction * Math.pow(10, exponent);
+    };
+
+    const niceRange = niceNum(range, false);
+    const tickSpacing = niceNum(niceRange / (maxTicks - 1), true);
+    const niceMin = Math.floor(min / tickSpacing) * tickSpacing;
+    const niceMax = Math.ceil(max / tickSpacing) * tickSpacing;
+
+    return { niceMin, niceMax, tickSpacing };
   },
 
   updateAsync(data, element, config, queryResponse, details, done) {
@@ -157,8 +191,9 @@ looker.plugins.visualizations.add({
       (this.options.custom_colors && this.options.custom_colors.default) ||
       "#7e8080,#5170D2,#9EE9E8,#252B5B,#161A3C,#38687D,#C5CFF1,#62D4D1,#161A3A";
 
-    const paletteString = (config && config.custom_colors) ?
-      config.custom_colors : defaultPaletteString;
+    const paletteString = (config && config.custom_colors)
+      ? config.custom_colors
+      : defaultPaletteString;
 
     const palette = paletteString
       .split(",")
@@ -224,7 +259,7 @@ looker.plugins.visualizations.add({
     // --------------------------------------------------------
     const width = svg.clientWidth || svg.parentNode.clientWidth || 600;
     const height = svg.clientHeight || svg.parentNode.clientHeight || 400;
-    const margin = { top: 30, right: 55, bottom: 55, left: 55 };
+    const margin = { top: 30, right: 60, bottom: 75, left: 60 };
 
     const chartW = Math.max(width - margin.left - margin.right, 10);
     const chartH = Math.max(height - margin.top - margin.bottom, 10);
@@ -236,9 +271,20 @@ looker.plugins.visualizations.add({
     const stackTotals = data.map((_, i) =>
       visibleStacked.reduce((sum, s) => sum + (s.data[i] || 0), 0)
     );
-    const maxStack = Math.max(...stackTotals, 1);
+    const rawMaxStack = Math.max(...stackTotals, 1);
 
-    const maxLine = lineSeries ? Math.max(...lineSeries.data, 1) : 1;
+    // Use nice rounded scale for left axis (like Highcharts)
+    const leftScale = this._niceScale(0, rawMaxStack, 6); // ~6 ticks
+    const maxStack = leftScale.niceMax;
+
+    // Line axis: nice scale around its min/max
+    let minLine = 0, maxLine = 1;
+    if (lineSeries) {
+      minLine = Math.min(...lineSeries.data);
+      maxLine = Math.max(...lineSeries.data);
+      if (minLine === maxLine) maxLine = minLine + 1;
+    }
+    const rightScale = this._niceScale(minLine, maxLine, 6);
 
     // Root group (chart area)
     const rootG = document.createElementNS("http://www.w3.org/2000/svg", "g");
@@ -246,12 +292,14 @@ looker.plugins.visualizations.add({
     svg.appendChild(rootG);
 
     // --------------------------------------------------------
-    // Y AXIS GRID + LABELS
+    // LEFT Y AXIS GRID + LABELS
     // --------------------------------------------------------
-    const yTicks = 5;
-    for (let t = 0; t <= yTicks; t++) {
-      const value = (maxStack * t) / yTicks;
-      const y = chartH - (value / maxStack) * chartH;
+    const formatNumber = (v) => {
+      return Math.round(v).toLocaleString();
+    };
+
+    for (let v = leftScale.niceMin; v <= leftScale.niceMax + leftScale.tickSpacing / 2; v += leftScale.tickSpacing) {
+      const y = chartH - (v - leftScale.niceMin) / (leftScale.niceMax - leftScale.niceMin) * chartH;
 
       // gridline
       const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
@@ -259,14 +307,14 @@ looker.plugins.visualizations.add({
       line.setAttribute("x2", chartW);
       line.setAttribute("y1", y);
       line.setAttribute("y2", y);
-      line.setAttribute("stroke", t === 0 ? "#444" : "#eee");
-      line.setAttribute("stroke-width", t === 0 ? "1.5" : "1");
+      line.setAttribute("stroke", v === 0 ? "#666" : "#eee");
+      line.setAttribute("stroke-width", v === 0 ? "1.5" : "1");
       rootG.appendChild(line);
 
       // label
       const txt = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      txt.textContent = Math.round(value);
-      txt.setAttribute("x", -6);
+      txt.textContent = formatNumber(v);
+      txt.setAttribute("x", -8);
       txt.setAttribute("y", y + 4);
       txt.setAttribute("text-anchor", "end");
       txt.setAttribute("font-size", "10");
@@ -274,7 +322,7 @@ looker.plugins.visualizations.add({
       rootG.appendChild(txt);
     }
 
-    // Axis titles
+    // Left axis title
     if (config.yaxis_left_title) {
       const leftAxis = document.createElementNS("http://www.w3.org/2000/svg", "text");
       leftAxis.textContent = config.yaxis_left_title;
@@ -284,17 +332,35 @@ looker.plugins.visualizations.add({
       rootG.appendChild(leftAxis);
     }
 
-    if (config.yaxis_right_title) {
-      const rightAxis = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      rightAxis.textContent = config.yaxis_right_title;
-      rightAxis.setAttribute("x", chartW + 10);
-      rightAxis.setAttribute("y", -10);
-      rightAxis.setAttribute("font-size", "12");
-      rootG.appendChild(rightAxis);
+    // --------------------------------------------------------
+    // RIGHT Y AXIS LABELS (no extra gridlines)
+    // --------------------------------------------------------
+    if (lineSeries) {
+      for (let v = rightScale.niceMin; v <= rightScale.niceMax + rightScale.tickSpacing / 2; v += rightScale.tickSpacing) {
+        const y = chartH - (v - rightScale.niceMin) / (rightScale.niceMax - rightScale.niceMin) * chartH;
+
+        const txt = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        txt.textContent = Math.round(v);
+        txt.setAttribute("x", chartW + 8);
+        txt.setAttribute("y", y + 4);
+        txt.setAttribute("text-anchor", "start");
+        txt.setAttribute("font-size", "10");
+        txt.setAttribute("fill", "#666");
+        rootG.appendChild(txt);
+      }
+
+      if (config.yaxis_right_title) {
+        const rightAxis = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        rightAxis.textContent = config.yaxis_right_title;
+        rightAxis.setAttribute("x", chartW + 10);
+        rightAxis.setAttribute("y", -10);
+        rightAxis.setAttribute("font-size", "12");
+        rootG.appendChild(rightAxis);
+      }
     }
 
     // --------------------------------------------------------
-    // X-AXIS LABELS (ROTATED TO AVOID OVERLAP)
+    // X-AXIS LABELS (ROTATED, FULL DATES)
     // --------------------------------------------------------
     categories.forEach((cat, i) => {
       const x = margin.left + i * xStep + xStep / 2;
@@ -302,20 +368,19 @@ looker.plugins.visualizations.add({
 
       const txt = document.createElementNS("http://www.w3.org/2000/svg", "text");
       txt.textContent = cat;
-      txt.setAttribute("font-size", "10");
+      txt.setAttribute("font-size", "11");
       txt.setAttribute("text-anchor", "end");
       txt.setAttribute("transform", `translate(${x},${y}) rotate(-45)`);
       svg.appendChild(txt);
     });
 
     // --------------------------------------------------------
-    // DRAW STACKED BARS – bottom-up like Highcharts, but legend colors kept
+    // DRAW STACKED BARS – bottom-up, last stacked series at base
     // --------------------------------------------------------
+    const stackedOrder = [...visibleStacked].reverse(); // last is bottom
+
     for (let i = 0; i < categories.length; i++) {
       let yBottom = chartH; // bottom of plotting area
-
-      // reverse order so last stacked series ends up at the bottom
-      const stackedOrder = [...visibleStacked].reverse();
 
       stackedOrder.forEach(series => {
         const val = series.data[i] || 0;
@@ -349,7 +414,7 @@ looker.plugins.visualizations.add({
     }
 
     // --------------------------------------------------------
-    // STACK TOTALS (TOP OF EACH BAR)
+    // STACK TOTALS
     // --------------------------------------------------------
     if (config.show_stack_totals) {
       stackTotals.forEach((total, i) => {
@@ -357,7 +422,7 @@ looker.plugins.visualizations.add({
         const y = chartH - totalHeight - 3;
 
         const txt = document.createElementNS("http://www.w3.org/2000/svg", "text");
-        txt.textContent = total;
+        txt.textContent = formatNumber(total);
         txt.setAttribute("x", i * xStep + xStep / 2);
         txt.setAttribute("y", y);
         txt.setAttribute("text-anchor", "middle");
@@ -371,11 +436,11 @@ looker.plugins.visualizations.add({
     // LINE SERIES
     // --------------------------------------------------------
     if (lineSeries) {
-      const lineColor = "#7e8080"; // you can tie this to palette if you like
+      const lineColor = "#7e8080";
 
       const points = lineSeries.data.map((v, i) => {
         const px = i * xStep + xStep / 2;
-        const py = chartH - (v / maxLine) * chartH;
+        const py = chartH - (v - rightScale.niceMin) / (rightScale.niceMax - rightScale.niceMin) * chartH;
         return { x: px, y: py, value: v };
       });
 
