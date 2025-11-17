@@ -131,7 +131,7 @@ looker.plugins.visualizations.add({
     const dims = queryResponse.fields.dimension_like || [];
     const meas = queryResponse.fields.measure_like || [];
 
-    // ---- Build dropdowns
+    // ---- Build dropdown choices
     const dimChoices = {};
     dims.forEach(d => dimChoices[d.name] = d.label_short || d.label || d.name);
 
@@ -152,7 +152,7 @@ looker.plugins.visualizations.add({
         .map(m => m.name);
     }
 
-    // ---- Colors (safe default if not yet set)
+    // ---- Colors (safe)
     const defaultPaletteString =
       (this.options.custom_colors && this.options.custom_colors.default) ||
       "#7e8080,#5170D2,#9EE9E8,#252B5B,#161A3C,#38687D,#C5CFF1,#62D4D1,#161A3A";
@@ -179,7 +179,7 @@ looker.plugins.visualizations.add({
       (r[xField.name].rendered || r[xField.name].value || "")
     );
 
-    // ---- Stacked series data
+    // ---- Stacked series data (with fixed color index)
     const stackedFields = (config.stacked_measures || [])
       .map(n => this._fieldByName(meas, n))
       .filter(Boolean);
@@ -197,21 +197,22 @@ looker.plugins.visualizations.add({
       ? {
           field: lineField,
           name: labelFor(lineField),
-          data: data.map(r => Number(r[lineField.name].value) || 0)
+          data: data.map(r => Number(r[lineField.name].value) || 0),
+          colorIndex: stackedSeries.length   // next color in palette
         }
       : null;
 
-    // ---- Hide fully-empty series
+    // ---- Hide fully-empty stacked series
     const treatZero = !!config.treat_zero_as_empty;
     const isEmpty = arr => !arr.some(v => v != null && (!treatZero ? true : v !== 0));
     const visibleStacked = stackedSeries.filter(s => !isEmpty(s.data));
 
     // --------------------------------------------------------
-    // LEGEND
+    // LEGEND – keep original order, colors bound to series.colorIndex
     // --------------------------------------------------------
-    const allSeries = visibleStacked.concat(lineSeries ? [lineSeries] : []);
-    allSeries.forEach((s, idx) => {
-      const color = idx < palette.length ? palette[idx] : "#999";
+    const legendSeries = visibleStacked.concat(lineSeries ? [lineSeries] : []);
+    legendSeries.forEach(s => {
+      const color = palette[s.colorIndex % palette.length] || "#999";
       const item = document.createElement("div");
       item.className = "legend-item";
       item.innerHTML = `<div class="legend-swatch" style="background:${color}"></div>${s.name}`;
@@ -219,11 +220,11 @@ looker.plugins.visualizations.add({
     });
 
     // --------------------------------------------------------
-    // SVG RENDERING SETUP
+    // SVG LAYOUT
     // --------------------------------------------------------
     const width = svg.clientWidth || svg.parentNode.clientWidth || 600;
     const height = svg.clientHeight || svg.parentNode.clientHeight || 400;
-    const margin = { top: 25, right: 50, bottom: 35, left: 50 };
+    const margin = { top: 30, right: 55, bottom: 55, left: 55 };
 
     const chartW = Math.max(width - margin.left - margin.right, 10);
     const chartH = Math.max(height - margin.top - margin.bottom, 10);
@@ -231,28 +232,54 @@ looker.plugins.visualizations.add({
     const xCount = Math.max(categories.length, 1);
     const xStep = chartW / xCount;
 
-    // Axis max for stacked bars
+    // ---- Stack totals & axis max
     const stackTotals = data.map((_, i) =>
       visibleStacked.reduce((sum, s) => sum + (s.data[i] || 0), 0)
     );
     const maxStack = Math.max(...stackTotals, 1);
 
-    // Axis max for line (auto)
     const maxLine = lineSeries ? Math.max(...lineSeries.data, 1) : 1;
 
-    // Root group for margins
+    // Root group (chart area)
     const rootG = document.createElementNS("http://www.w3.org/2000/svg", "g");
     rootG.setAttribute("transform", `translate(${margin.left},${margin.top})`);
     svg.appendChild(rootG);
 
     // --------------------------------------------------------
-    // AXIS TITLES
+    // Y AXIS GRID + LABELS
     // --------------------------------------------------------
+    const yTicks = 5;
+    for (let t = 0; t <= yTicks; t++) {
+      const value = (maxStack * t) / yTicks;
+      const y = chartH - (value / maxStack) * chartH;
+
+      // gridline
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("x1", 0);
+      line.setAttribute("x2", chartW);
+      line.setAttribute("y1", y);
+      line.setAttribute("y2", y);
+      line.setAttribute("stroke", t === 0 ? "#444" : "#eee");
+      line.setAttribute("stroke-width", t === 0 ? "1.5" : "1");
+      rootG.appendChild(line);
+
+      // label
+      const txt = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      txt.textContent = Math.round(value);
+      txt.setAttribute("x", -6);
+      txt.setAttribute("y", y + 4);
+      txt.setAttribute("text-anchor", "end");
+      txt.setAttribute("font-size", "10");
+      txt.setAttribute("fill", "#666");
+      rootG.appendChild(txt);
+    }
+
+    // Axis titles
     if (config.yaxis_left_title) {
       const leftAxis = document.createElementNS("http://www.w3.org/2000/svg", "text");
       leftAxis.textContent = config.yaxis_left_title;
       leftAxis.setAttribute("x", -margin.left + 5);
-      leftAxis.setAttribute("y", -5);
+      leftAxis.setAttribute("y", -10);
       leftAxis.setAttribute("font-size", "12");
       rootG.appendChild(leftAxis);
     }
@@ -261,62 +288,51 @@ looker.plugins.visualizations.add({
       const rightAxis = document.createElementNS("http://www.w3.org/2000/svg", "text");
       rightAxis.textContent = config.yaxis_right_title;
       rightAxis.setAttribute("x", chartW + 10);
-      rightAxis.setAttribute("y", -5);
+      rightAxis.setAttribute("y", -10);
       rightAxis.setAttribute("font-size", "12");
       rootG.appendChild(rightAxis);
     }
 
     // --------------------------------------------------------
-    // CATEGORY LABELS (X-AXIS)
+    // X-AXIS LABELS (ROTATED TO AVOID OVERLAP)
     // --------------------------------------------------------
     categories.forEach((cat, i) => {
+      const x = margin.left + i * xStep + xStep / 2;
+      const y = height - 5;
+
       const txt = document.createElementNS("http://www.w3.org/2000/svg", "text");
       txt.textContent = cat;
-      txt.setAttribute("x", margin.left + i * xStep + xStep / 2);
-      txt.setAttribute("y", height - 5);
-      txt.setAttribute("text-anchor", "middle");
       txt.setAttribute("font-size", "10");
+      txt.setAttribute("text-anchor", "end");
+      txt.setAttribute("transform", `translate(${x},${y}) rotate(-45)`);
       svg.appendChild(txt);
     });
 
     // --------------------------------------------------------
-    // DRAW STACKED BARS (BOTTOM-UP, LIKE HIGHCHARTS)
+    // DRAW STACKED BARS – bottom-up like Highcharts, but legend colors kept
     // --------------------------------------------------------
-    visibleStacked.forEach((series, sIdx) => {
-      const color = palette[sIdx % palette.length];
-
-      series.data.forEach((val, i) => {
-        if (!categories[i]) return;
-        const barHeight = (val / maxStack) * chartH;
-
-        // bottom of this stack element = current cumulative height
-        // We'll compute by iterating per x below; simpler: we do a second loop:
-      });
-    });
-
-    // Re-do stacking per category for correct bottom-up layout
     for (let i = 0; i < categories.length; i++) {
       let yBottom = chartH; // bottom of plotting area
-    
-      // reverse here so the *last* series is at the bottom (Store Visits)
+
+      // reverse order so last stacked series ends up at the bottom
       const stackedOrder = [...visibleStacked].reverse();
-    
+
       stackedOrder.forEach(series => {
         const val = series.data[i] || 0;
         if (val === 0 && treatZero) return;
-    
+
         const barHeight = (val / maxStack) * chartH;
         const yTop = yBottom - barHeight;
         const x = i * xStep + xStep * 0.1;
-    
+
         const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
         rect.setAttribute("x", x);
         rect.setAttribute("y", yTop);
         rect.setAttribute("width", xStep * 0.8);
         rect.setAttribute("height", barHeight);
-        rect.setAttribute("fill", palette[series.colorIndex % palette.length]);
+        rect.setAttribute("fill", palette[series.colorIndex % palette.length] || "#999");
         rect.style.cursor = "pointer";
-    
+
         rect.addEventListener("mousemove", evt => {
           tooltip.style.display = "block";
           tooltip.style.left = evt.pageX + 10 + "px";
@@ -326,9 +342,9 @@ looker.plugins.visualizations.add({
         rect.addEventListener("mouseleave", () => {
           tooltip.style.display = "none";
         });
-    
+
         rootG.appendChild(rect);
-        yBottom = yTop; // next segment stacks on top
+        yBottom = yTop;
       });
     }
 
@@ -352,9 +368,11 @@ looker.plugins.visualizations.add({
     }
 
     // --------------------------------------------------------
-    // DRAW LINE SERIES
+    // LINE SERIES
     // --------------------------------------------------------
     if (lineSeries) {
+      const lineColor = "#7e8080"; // you can tie this to palette if you like
+
       const points = lineSeries.data.map((v, i) => {
         const px = i * xStep + xStep / 2;
         const py = chartH - (v / maxLine) * chartH;
@@ -364,7 +382,7 @@ looker.plugins.visualizations.add({
       const pl = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
       pl.setAttribute("points", points.map(p => `${p.x},${p.y}`).join(" "));
       pl.setAttribute("fill", "none");
-      pl.setAttribute("stroke", "#7e8080");
+      pl.setAttribute("stroke", lineColor);
       pl.setAttribute("stroke-width", "2");
       rootG.appendChild(pl);
 
@@ -373,7 +391,7 @@ looker.plugins.visualizations.add({
         circ.setAttribute("cx", p.x);
         circ.setAttribute("cy", p.y);
         circ.setAttribute("r", 4);
-        circ.setAttribute("fill", "#7e8080");
+        circ.setAttribute("fill", lineColor);
         circ.style.cursor = "pointer";
 
         circ.addEventListener("mousemove", evt => {
