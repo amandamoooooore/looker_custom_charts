@@ -149,8 +149,21 @@ looker.plugins.visualizations.add({
     if (!config.stacked_measures || config.stacked_measures.length === 0)
       config.stacked_measures = meas.filter(m => m.name !== config.line_measure).map(m => m.name);
 
-    // Colors
-    const palette = config.custom_colors.split(",").map(c => c.trim());
+    
+    // ---- Colors
+    const defaultPaletteString =
+      (this.options.custom_colors && this.options.custom_colors.default) ||
+      "#7e8080,#5170D2,#9EE9E8,#252B5B,#161A3C,#38687D,#C5CFF1,#62D4D1,#161A3A";
+    
+    const paletteString = (config && config.custom_colors) ? config.custom_colors : defaultPaletteString;
+    
+    const palette = paletteString
+      .split(",")
+      .map(c => c.trim())
+      .filter(Boolean);
+
+
+    
 
     // Label map
     let labelMap = {};
