@@ -89,7 +89,7 @@ looker.plugins.visualizations.add({
           display: flex;
           flex-wrap: wrap;
           justify-content: center;
-          margin-bottom: 4px;
+          margin-top: 10px; /* now sits below x-axis */
         }
         .legend-item {
           display: flex;
@@ -107,8 +107,8 @@ looker.plugins.visualizations.add({
 
       <div class="svg-chart-root">
         <div class="svg-tooltip"></div>
-        <div class="legend"></div>
         <svg class="chart-svg" width="100%" height="100%"></svg>
+        <div class="legend"></div>
       </div>
     `;
 
@@ -295,18 +295,14 @@ looker.plugins.visualizations.add({
     const leftScale = this._niceScale(0, rawMaxStack, 6);
     const maxStack = leftScale.niceMax;
 
-    // ---- Right axis (line)
+    // ---- Right axis (line) – always start at 0
     let maxLine = 1;
-    
     if (lineSeries) {
       maxLine = Math.max(...lineSeries.data, 0);
       if (maxLine === 0) {
-        // avoid a flat scale when all values are 0
-        maxLine = 1;
+        maxLine = 1; // avoid a flat scale
       }
     }
-    
-    // Always start from 0 on the right axis
     const rightScale = this._niceScale(0, maxLine, 6);
 
     const rootG = document.createElementNS("http://www.w3.org/2000/svg", "g");
