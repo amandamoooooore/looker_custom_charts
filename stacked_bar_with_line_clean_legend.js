@@ -89,20 +89,21 @@ looker.plugins.visualizations.add({
           display: flex;
           flex-wrap: wrap;
           justify-content: center;
-          margin-top: 16px;      /* more space above legend */
-          margin-bottom: 12px;   /* space from bottom edge */
+          margin-top: 6px; /* small spacing between x-axis labels and legend */
         }
+        
         .legend-item {
           display: flex;
           align-items: center;
-          margin: 4px 16px;      /* more horizontal + vertical padding */
+          margin: 0 32px 4px 32px; /* <<< wide spacing between items */
           font-size: 12px;
           cursor: default;
         }
+        
         .legend-swatch {
           width: 12px;
           height: 12px;
-          margin-right: 6px;     /* a touch more space between swatch and label */
+          margin-right: 6px;
         }
       </style>
   
