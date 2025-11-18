@@ -296,13 +296,18 @@ looker.plugins.visualizations.add({
     const maxStack = leftScale.niceMax;
 
     // ---- Right axis (line)
-    let minLine = 0, maxLine = 1;
+    let maxLine = 1;
+    
     if (lineSeries) {
-      minLine = Math.min(...lineSeries.data);
-      maxLine = Math.max(...lineSeries.data);
-      if (minLine === maxLine) maxLine = minLine + 1;
+      maxLine = Math.max(...lineSeries.data, 0);
+      if (maxLine === 0) {
+        // avoid a flat scale when all values are 0
+        maxLine = 1;
+      }
     }
-    const rightScale = this._niceScale(minLine, maxLine, 6);
+    
+    // Always start from 0 on the right axis
+    const rightScale = this._niceScale(0, maxLine, 6);
 
     const rootG = document.createElementNS("http://www.w3.org/2000/svg", "g");
     rootG.setAttribute("transform", `translate(${margin.left},${margin.top})`);
