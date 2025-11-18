@@ -89,22 +89,23 @@ looker.plugins.visualizations.add({
           display: flex;
           flex-wrap: wrap;
           justify-content: center;
-          margin-top: 10px; /* now sits below x-axis */
+          margin-top: 16px;      /* more space above legend */
+          margin-bottom: 12px;   /* space from bottom edge */
         }
         .legend-item {
           display: flex;
           align-items: center;
-          margin: 0 10px 4px 10px;
+          margin: 4px 16px;      /* more horizontal + vertical padding */
           font-size: 12px;
           cursor: default;
         }
         .legend-swatch {
           width: 12px;
           height: 12px;
-          margin-right: 4px;
+          margin-right: 6px;     /* a touch more space between swatch and label */
         }
       </style>
-
+  
       <div class="svg-chart-root">
         <div class="svg-tooltip"></div>
         <svg class="chart-svg" width="100%" height="100%"></svg>
