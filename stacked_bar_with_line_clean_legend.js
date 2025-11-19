@@ -119,6 +119,7 @@ looker.plugins.visualizations.add({
           width: 12px;
           height: 12px;
           margin-right: 6px;
+          border-radius: 50%;  
         }
       </style>
 
