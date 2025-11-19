@@ -17,6 +17,12 @@ looker.plugins.visualizations.add({
       values: {},
       section: "Data"
     },
+    use_first_measure_as_line: {
+      label: "Use first stacked measure as line",
+      type: "boolean",
+      default: false,
+      section: "Data"
+    },
     stacked_measures: {
       label: "Stacked Measures",
       type: "array",
@@ -72,9 +78,9 @@ looker.plugins.visualizations.add({
           width: 100%;
           height: 100%;
           font-family: Arial, sans-serif;
-          display: flex;           /* NEW: flex layout */
-          flex-direction: column;  /* stack svg on top, legend below */
-          overflow: hidden;        /* avoid scrollbars */
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
         }
         .svg-tooltip {
           position: absolute;
@@ -89,19 +95,19 @@ looker.plugins.visualizations.add({
           white-space: nowrap;
         }
         .chart-svg {
-          flex: 1 1 auto;          /* NEW: svg takes remaining height */
+          flex: 1 1 auto;
           width: 100%;
         }
         .legend {
           display: flex;
           flex-wrap: wrap;
           justify-content: center;
-          margin-top: 6px;         /* small gap under x-axis */
+          margin-top: 6px;
         }
         .legend-item {
           display: flex;
           align-items: center;
-          margin: 0 24px 4px 24px; /* spacing between items */
+          margin: 0 24px 4px 24px;
           font-size: 12px;
           cursor: default;
         }
@@ -111,21 +117,20 @@ looker.plugins.visualizations.add({
           margin-right: 6px;
         }
       </style>
-  
+
       <div class="svg-chart-root">
         <div class="svg-tooltip"></div>
-        <!-- NOTE: removed height="100%" here -->
         <svg class="chart-svg"></svg>
         <div class="legend"></div>
       </div>
     `;
-  
+
     this._svg = element.querySelector(".chart-svg");
     this._legend = element.querySelector(".legend");
     this._tooltip = element.querySelector(".svg-tooltip");
-  
+
     const root = element.querySelector(".svg-chart-root");
-  
+
     // Re-render on tile resize
     if (window.ResizeObserver) {
       this._resizeObserver = new ResizeObserver(() => {
@@ -208,10 +213,10 @@ looker.plugins.visualizations.add({
     // ---- Defaults
     if (!config.x_dim && dims[0]) config.x_dim = dims[0].name;
     if (!config.line_measure && meas[0]) config.line_measure = meas[0].name;
+
+    // By default, include all measures in stacked_measures
     if (!config.stacked_measures || config.stacked_measures.length === 0) {
-      config.stacked_measures = meas
-        .filter(m => m.name !== config.line_measure)
-        .map(m => m.name);
+      config.stacked_measures = meas.map(m => m.name);
     }
 
     // ---- Colors
@@ -242,11 +247,27 @@ looker.plugins.visualizations.add({
       (r[xField.name].rendered || r[xField.name].value || "")
     );
 
-    // ---- Stacked series
-    const stackedFields = (config.stacked_measures || [])
+    // ---- Determine stacked + line fields
+    let stackedFields = (config.stacked_measures || [])
       .map(n => this._fieldByName(meas, n))
       .filter(Boolean);
 
+    let lineField = null;
+
+    if (config.use_first_measure_as_line && stackedFields.length > 0) {
+      // Use first stacked measure as line, rest stay stacked
+      lineField = stackedFields[0];
+      stackedFields = stackedFields.slice(1);
+    } else if (config.line_measure) {
+      // Classic behavior: explicit line_measure
+      lineField = this._fieldByName(meas, config.line_measure);
+      if (lineField) {
+        // Remove from stacked if it's there so it doesn't double-count
+        stackedFields = stackedFields.filter(f => f.name !== lineField.name);
+      }
+    }
+
+    // ---- Stacked series
     const stackedSeries = stackedFields.map((f, idx) => ({
       field: f,
       name: labelFor(f),
@@ -256,7 +277,6 @@ looker.plugins.visualizations.add({
     }));
 
     // ---- Line series (red)
-    const lineField = this._fieldByName(meas, config.line_measure);
     const lineSeries = lineField
       ? {
           field: lineField,
@@ -367,7 +387,6 @@ looker.plugins.visualizations.add({
     // --------------------------------------------------------
     // Axis titles – after ticks so we can measure label width
     // --------------------------------------------------------
-    // Left axis title (vertical, spaced from tick labels)
     if (config.yaxis_left_title) {
       let maxTickWidth = 0;
       svg.querySelectorAll(".y-left-tick").forEach(t => {
@@ -380,7 +399,7 @@ looker.plugins.visualizations.add({
       leftAxis.setAttribute("font-size", "12");
       leftAxis.setAttribute("text-anchor", "middle");
 
-      const leftX = -(maxTickWidth + 20); // 20px gap from longest label
+      const leftX = -(maxTickWidth + 20);
 
       leftAxis.setAttribute(
         "transform",
@@ -389,7 +408,6 @@ looker.plugins.visualizations.add({
       rootG.appendChild(leftAxis);
     }
 
-    // Right axis title (vertical, spaced from tick labels)
     if (lineSeries && config.yaxis_right_title) {
       let maxTickWidth = 0;
       svg.querySelectorAll(".y-right-tick").forEach(t => {
@@ -402,7 +420,7 @@ looker.plugins.visualizations.add({
       rightAxis.setAttribute("font-size", "12");
       rightAxis.setAttribute("text-anchor", "middle");
 
-      const rightX = chartW + maxTickWidth + 20; // 20px gap from longest label
+      const rightX = chartW + maxTickWidth + 20;
 
       rightAxis.setAttribute(
         "transform",
