@@ -17,10 +17,10 @@ looker.plugins.visualizations.add({
       values: {},
       section: "Data"
     },
-    first_stacked_as_line: {
+    use_first_measure_as_line: {
       label: "Use first stacked measure as line",
       type: "boolean",
-      default: true,
+      default: false,
       section: "Data"
     },
     stacked_measures: {
@@ -117,20 +117,20 @@ looker.plugins.visualizations.add({
           margin-right: 6px;
         }
       </style>
-  
+
       <div class="svg-chart-root">
         <div class="svg-tooltip"></div>
         <svg class="chart-svg"></svg>
         <div class="legend"></div>
       </div>
     `;
-  
+
     this._svg = element.querySelector(".chart-svg");
     this._legend = element.querySelector(".legend");
     this._tooltip = element.querySelector(".svg-tooltip");
-  
+
     const root = element.querySelector(".svg-chart-root");
-  
+
     // Re-render on tile resize
     if (window.ResizeObserver) {
       this._resizeObserver = new ResizeObserver(() => {
@@ -213,10 +213,10 @@ looker.plugins.visualizations.add({
     // ---- Defaults
     if (!config.x_dim && dims[0]) config.x_dim = dims[0].name;
     if (!config.line_measure && meas[0]) config.line_measure = meas[0].name;
+
+    // By default, include all measures in stacked_measures
     if (!config.stacked_measures || config.stacked_measures.length === 0) {
-      config.stacked_measures = meas
-        .filter(m => m.name !== config.line_measure)
-        .map(m => m.name);
+      config.stacked_measures = meas.map(m => m.name);
     }
 
     // ---- Colors
@@ -247,24 +247,24 @@ looker.plugins.visualizations.add({
       (r[xField.name].rendered || r[xField.name].value || "")
     );
 
-    // ---- Stacked + line fields
+    // ---- Determine stacked + line fields
     let stackedFields = (config.stacked_measures || [])
       .map(n => this._fieldByName(meas, n))
       .filter(Boolean);
 
     let lineField = null;
 
-    if (config.first_stacked_as_line) {
-      // Use first stacked measure as line, remove it from bars
-      if (stackedFields.length > 0) {
-        lineField = stackedFields[0];
-        stackedFields = stackedFields.slice(1);
-      }
-    } else {
-      // Original behaviour: use explicit line_measure
+    if (config.use_first_measure_as_line && stackedFields.length > 0) {
+      // Use first stacked measure as line, rest stay stacked
+      lineField = stackedFields[0];
+      stackedFields = stackedFields.slice(1);
+    } else if (config.line_measure) {
+      // Classic behavior: explicit line_measure
       lineField = this._fieldByName(meas, config.line_measure);
-      // (we leave stackedFields as-is so the "first" stacked measure
-      // remains purely a stacked bar when this option is off)
+      if (lineField) {
+        // Remove from stacked if it's there so it doesn't double-count
+        stackedFields = stackedFields.filter(f => f.name !== lineField.name);
+      }
     }
 
     // ---- Stacked series
