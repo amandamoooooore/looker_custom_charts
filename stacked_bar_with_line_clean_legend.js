@@ -250,7 +250,7 @@ looker.plugins.visualizations.add({
     );
 
     const LABEL_LONG_THRESHOLD = 15;   // > 15 chars = "long"
-    const marginBottomShort = 90;      // slightly bigger for dates
+    const marginBottomShort = 110;     // extra room so dates aren't clipped
     const marginBottomLong  = 200;     // more room for long vertical labels
 
     const isLongLabels = maxLabelLen > LABEL_LONG_THRESHOLD;
