@@ -20,7 +20,7 @@ looker.plugins.visualizations.add({
     use_first_measure_as_line: {
       label: "Use first stacked measure as line",
       type: "boolean",
-      default: false,
+      default: true,
       section: "Data"
     },
     stacked_measures: {
