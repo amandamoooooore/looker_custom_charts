@@ -20,7 +20,7 @@ looker.plugins.visualizations.add({
     use_first_measure_as_line: {
       label: "Use first stacked measure as line",
       type: "boolean",
-      default: false,
+      default: true,
       section: "Data"
     },
     stacked_measures: {
@@ -80,7 +80,7 @@ looker.plugins.visualizations.add({
           font-family: Arial, sans-serif;
           display: flex;
           flex-direction: column;
-          overflow: hidden;
+          overflow: hidden; /* avoid scrollbars */
         }
         .svg-tooltip {
           position: absolute;
@@ -238,25 +238,11 @@ looker.plugins.visualizations.add({
       (r[xField.name].rendered || r[xField.name].value || "")
     );
 
-    // ------------------------------------------------------------------
-    // Layout – bottom margin depends on label length (short vs long)
-    // ------------------------------------------------------------------
+    // ---- SVG layout (slightly bigger label area)
     const width = svg.clientWidth || svg.parentNode.clientWidth || 600;
     const height = svg.clientHeight || svg.parentNode.clientHeight || 400;
 
-    const maxLabelLen = categories.reduce(
-      (m, c) => Math.max(m, String(c || "").length),
-      0
-    );
-
-    const LABEL_LONG_THRESHOLD = 15;   // > 15 chars = "long"
-    const marginBottomShort = 80;      // for dates etc.
-    const marginBottomLong  = 170;     // for long vertical labels
-
-    const isLongLabels = maxLabelLen > LABEL_LONG_THRESHOLD;
-    const marginBottom = isLongLabels ? marginBottomLong : marginBottomShort;
-
-    const margin = { top: 30, right: 60, bottom: marginBottom, left: 60 };
+    const margin = { top: 30, right: 60, bottom: 100, left: 60 }; // bottom 100 (was 80)
 
     const chartW = Math.max(width - margin.left - margin.right, 10);
     const chartH = Math.max(height - margin.top - margin.bottom, 10);
@@ -264,9 +250,7 @@ looker.plugins.visualizations.add({
     const xCount = Math.max(categories.length, 1);
     const xStep = chartW / xCount;
 
-    // ------------------------------------------------------------------
-    // Series setup (stacked + optional line)
-    // ------------------------------------------------------------------
+    // ---- Determine stacked + line fields
     let stackedFields = (config.stacked_measures || [])
       .map(n => this._fieldByName(meas, n))
       .filter(Boolean);
@@ -306,9 +290,7 @@ looker.plugins.visualizations.add({
       !arr.some(v => v != null && (!treatZero ? true : v !== 0));
     const visibleStacked = stackedSeries.filter(s => !isEmpty(s.data));
 
-    // ------------------------------------------------------------------
-    // Legend
-    // ------------------------------------------------------------------
+    // ---- LEGEND
     const legendSeries = visibleStacked.concat(lineSeries ? [lineSeries] : []);
     legendSeries.forEach(s => {
       const item = document.createElement("div");
@@ -317,9 +299,7 @@ looker.plugins.visualizations.add({
       legend.appendChild(item);
     });
 
-    // ------------------------------------------------------------------
-    // Scales
-    // ------------------------------------------------------------------
+    // ---- Scales
     const stackTotals = data.map((_, i) =>
       visibleStacked.reduce((sum, s) => sum + (s.data[i] || 0), 0)
     );
@@ -340,9 +320,7 @@ looker.plugins.visualizations.add({
 
     const formatNumber = v => Math.round(v).toLocaleString();
 
-    // ------------------------------------------------------------------
-    // Left Y axis + grid
-    // ------------------------------------------------------------------
+    // ---- Left Y axis & grid
     for (
       let v = leftScale.niceMin;
       v <= leftScale.niceMax + leftScale.tickSpacing / 2;
@@ -374,9 +352,7 @@ looker.plugins.visualizations.add({
       rootG.appendChild(txt);
     }
 
-    // ------------------------------------------------------------------
-    // Right Y axis
-    // ------------------------------------------------------------------
+    // ---- Right Y axis
     if (lineSeries) {
       for (
         let v = rightScale.niceMin;
@@ -401,9 +377,7 @@ looker.plugins.visualizations.add({
       }
     }
 
-    // ------------------------------------------------------------------
-    // Axis titles
-    // ------------------------------------------------------------------
+    // ---- Axis titles
     if (config.yaxis_left_title) {
       let maxTickWidth = 0;
       svg.querySelectorAll(".y-left-tick").forEach(t => {
@@ -444,21 +418,17 @@ looker.plugins.visualizations.add({
       rootG.appendChild(rightAxis);
     }
 
-    // ------------------------------------------------------------------
-    // X-axis labels – vertical, truncate at END, full on hover
-    // ------------------------------------------------------------------
+    // ---- X-axis labels: vertical (-90°), truncate at the END, full on hover
     const MAX_LABEL_CHARS = 24;
     const xLabelFontSize = 12;
-
-    // baseline at very bottom of svg; label height lives inside marginBottom
-    const baselineY = height - 5;
+    const baselineY = margin.top + chartH + 5;
 
     categories.forEach((cat, i) => {
       const fullLabel = String(cat || "");
       let displayLabel = fullLabel;
 
       if (displayLabel.length > MAX_LABEL_CHARS) {
-        // keep the start, cut off the tail, ellipsis at END
+        // keep the beginning, cut off the tail, add ellipsis at the END
         displayLabel = displayLabel.slice(0, MAX_LABEL_CHARS - 1) + "…";
       }
 
@@ -474,7 +444,6 @@ looker.plugins.visualizations.add({
       );
       txt.setAttribute("fill", "#333");
 
-      // full label on hover
       txt.addEventListener("mousemove", evt => {
         tooltip.style.display = "block";
         tooltip.style.left = evt.pageX + 10 + "px";
@@ -488,9 +457,7 @@ looker.plugins.visualizations.add({
       svg.appendChild(txt);
     });
 
-    // ------------------------------------------------------------------
-    // Stacked bars
-    // ------------------------------------------------------------------
+    // ---- Stacked bars
     const stackedOrder = [...visibleStacked].reverse();
 
     for (let i = 0; i < categories.length; i++) {
@@ -527,9 +494,7 @@ looker.plugins.visualizations.add({
       });
     }
 
-    // ------------------------------------------------------------------
-    // Stack totals
-    // ------------------------------------------------------------------
+    // ---- Stack totals
     if (config.show_stack_totals) {
       stackTotals.forEach((total, i) => {
         const totalHeight = (total / maxStack) * chartH;
@@ -546,9 +511,7 @@ looker.plugins.visualizations.add({
       });
     }
 
-    // ------------------------------------------------------------------
-    // Line series
-    // ------------------------------------------------------------------
+    // ---- Line series
     if (lineSeries) {
       const points = lineSeries.data.map((v, i) => {
         const px = i * xStep + xStep / 2;
