@@ -109,7 +109,11 @@ looker.plugins.visualizations.add({
           align-items: center;
           margin: 0 24px 4px 24px;
           font-size: 12px;
-          cursor: default;
+          cursor: pointer;        
+          user-select: none;
+        }
+        .legend-item.hidden {
+          opacity: 0.3;             
         }
         .legend-swatch {
           width: 12px;
@@ -130,6 +134,8 @@ looker.plugins.visualizations.add({
     this._tooltip = element.querySelector(".svg-tooltip");
 
     const root = element.querySelector(".svg-chart-root");
+
+    this._seriesVisibility = this._seriesVisibility || {}; // <<< visibility state
 
     if (window.ResizeObserver) {
       this._resizeObserver = new ResizeObserver(() => {
@@ -250,7 +256,7 @@ looker.plugins.visualizations.add({
     );
 
     const LABEL_LONG_THRESHOLD = 15;   // > 15 chars = "long"
-    const marginBottomShort = 110;     // extra room so dates aren't clipped
+    const marginBottomShort = 110;     // enough for dates
     const marginBottomLong  = 200;     // more room for long vertical labels
 
     const isLongLabels = maxLabelLen > LABEL_LONG_THRESHOLD;
@@ -291,7 +297,7 @@ looker.plugins.visualizations.add({
       color: palette[idx % palette.length] || "#999"
     }));
 
-    const lineSeries = lineField
+    const lineSeriesBase = lineField
       ? {
           field: lineField,
           name: labelFor(lineField),
@@ -304,16 +310,53 @@ looker.plugins.visualizations.add({
     const treatZero = !!config.treat_zero_as_empty;
     const isEmpty = arr =>
       !arr.some(v => v != null && (!treatZero ? true : v !== 0));
-    const visibleStacked = stackedSeries.filter(s => !isEmpty(s.data));
 
     // ------------------------------------------------------------------
-    // Legend
+    // Visibility state init (per field.name)
     // ------------------------------------------------------------------
-    const legendSeries = visibleStacked.concat(lineSeries ? [lineSeries] : []);
+    this._seriesVisibility = this._seriesVisibility || {};
+
+    stackedSeries.forEach(s => {
+      if (this._seriesVisibility[s.field.name] === undefined) {
+        this._seriesVisibility[s.field.name] = true;
+      }
+    });
+    if (lineSeriesBase && this._seriesVisibility[lineSeriesBase.field.name] === undefined) {
+      this._seriesVisibility[lineSeriesBase.field.name] = true;
+    }
+
+    const visibleStacked = stackedSeries.filter(s =>
+      this._seriesVisibility[s.field.name] !== false && !isEmpty(s.data)
+    );
+
+    const lineVisible =
+      lineSeriesBase && this._seriesVisibility[lineSeriesBase.field.name] !== false;
+    const lineSeries = lineVisible ? lineSeriesBase : null;
+
+    // ------------------------------------------------------------------
+    // Legend (click to toggle)
+    // ------------------------------------------------------------------
+    const legendSeries = stackedSeries
+      .filter(s => !isEmpty(s.data))
+      .concat(lineSeriesBase ? [lineSeriesBase] : []);
+
     legendSeries.forEach(s => {
+      const key = s.field.name;
+      const isOn = this._seriesVisibility[key] !== false;
+
       const item = document.createElement("div");
-      item.className = "legend-item";
-      item.innerHTML = `<div class="legend-swatch" style="background:${s.color}"></div>${s.name}`;
+      item.className = "legend-item" + (isOn ? "" : " hidden");
+
+      item.innerHTML =
+        `<div class="legend-swatch" style="background:${s.color}"></div>${s.name}`;
+
+      item.addEventListener("click", () => {
+        this._seriesVisibility[key] = !this._seriesVisibility[key];
+        if (this._lastArgs) {
+          this._render.apply(this, this._lastArgs);
+        }
+      });
+
       legend.appendChild(item);
     });
 
@@ -327,6 +370,7 @@ looker.plugins.visualizations.add({
     const leftScale = this._niceScale(0, rawMaxStack, 6);
     const maxStack = leftScale.niceMax;
 
+    // Right axis (line) – always start at 0
     let maxLine = 1;
     if (lineSeries) {
       maxLine = Math.max(...lineSeries.data, 0);
@@ -449,7 +493,7 @@ looker.plugins.visualizations.add({
     // ------------------------------------------------------------------
     const MAX_LABEL_CHARS = 24;
     const xLabelFontSize = 12;
-    const baselineLocal = chartH + 10; // a bit more gap below axis
+    const baselineLocal = chartH + 10;
 
     categories.forEach((cat, i) => {
       const fullLabel = String(cat || "");
