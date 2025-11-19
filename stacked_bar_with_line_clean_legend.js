@@ -238,11 +238,11 @@ looker.plugins.visualizations.add({
       (r[xField.name].rendered || r[xField.name].value || "")
     );
 
-    // ---- SVG layout (fixed bottom margin; truncation keeps labels reasonable)
+    // ---- SVG layout (slightly bigger label area)
     const width = svg.clientWidth || svg.parentNode.clientWidth || 600;
     const height = svg.clientHeight || svg.parentNode.clientHeight || 400;
 
-    const margin = { top: 30, right: 60, bottom: 80, left: 60 };
+    const margin = { top: 30, right: 60, bottom: 100, left: 60 }; // bottom 100 (was 80)
 
     const chartW = Math.max(width - margin.left - margin.right, 10);
     const chartH = Math.max(height - margin.top - margin.bottom, 10);
@@ -418,15 +418,17 @@ looker.plugins.visualizations.add({
       rootG.appendChild(rightAxis);
     }
 
-    // ---- X-axis labels: vertical (-90°), truncated, full on hover
-    const MAX_LABEL_CHARS = 20;
+    // ---- X-axis labels: vertical (-90°), truncate at the END, full on hover
+    const MAX_LABEL_CHARS = 24;
     const xLabelFontSize = 12;
-    const baselineY = margin.top + chartH + 5; // just under the chart area
+    const baselineY = margin.top + chartH + 5;
 
     categories.forEach((cat, i) => {
       const fullLabel = String(cat || "");
       let displayLabel = fullLabel;
+
       if (displayLabel.length > MAX_LABEL_CHARS) {
+        // keep the beginning, cut off the tail, add ellipsis at the END
         displayLabel = displayLabel.slice(0, MAX_LABEL_CHARS - 1) + "…";
       }
 
