@@ -250,8 +250,8 @@ looker.plugins.visualizations.add({
     );
 
     const LABEL_LONG_THRESHOLD = 15;   // > 15 chars = "long"
-    const marginBottomShort = 80;      // for dates etc.
-    const marginBottomLong  = 170;     // for long vertical labels
+    const marginBottomShort = 90;      // slightly bigger for dates
+    const marginBottomLong  = 200;     // more room for long vertical labels
 
     const isLongLabels = maxLabelLen > LABEL_LONG_THRESHOLD;
     const marginBottom = isLongLabels ? marginBottomLong : marginBottomShort;
@@ -445,11 +445,11 @@ looker.plugins.visualizations.add({
     }
 
     // ------------------------------------------------------------------
-    // X-axis labels – **inside rootG**, vertical, truncate at END
+    // X-axis labels – vertical, truncate at END
     // ------------------------------------------------------------------
     const MAX_LABEL_CHARS = 24;
     const xLabelFontSize = 12;
-    const baselineLocal = chartH + 5; // chart coordinates, not whole SVG
+    const baselineLocal = chartH + 10; // a bit more gap below axis
 
     categories.forEach((cat, i) => {
       const fullLabel = String(cat || "");
