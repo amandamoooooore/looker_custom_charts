@@ -239,24 +239,12 @@ looker.plugins.visualizations.add({
     );
 
     // ------------------------------------------------------------------
-    // Layout – bottom margin only grows when labels are long
+    // Layout – fixed generous bottom margin so labels never clip
     // ------------------------------------------------------------------
     const width = svg.clientWidth || svg.parentNode.clientWidth || 600;
     const height = svg.clientHeight || svg.parentNode.clientHeight || 400;
 
-    const maxLabelLen = categories.reduce(
-      (m, c) => Math.max(m, String(c || "").length),
-      0
-    );
-
-    const LABEL_LONG_THRESHOLD = 15;   // > 15 chars = "long"
-    const marginBottomShort = 100;     // slightly larger so dates don't clip
-    const marginBottomLong  = 190;     // more space for long names
-
-    const isLongLabels = maxLabelLen > LABEL_LONG_THRESHOLD;
-    const marginBottom = isLongLabels ? marginBottomLong : marginBottomShort;
-
-    const margin = { top: 30, right: 60, bottom: marginBottom, left: 60 };
+    const margin = { top: 30, right: 60, bottom: 170, left: 60 };
 
     const chartW = Math.max(width - margin.left - margin.right, 10);
     const chartH = Math.max(height - margin.top - margin.bottom, 10);
@@ -445,18 +433,17 @@ looker.plugins.visualizations.add({
     }
 
     // ------------------------------------------------------------------
-    // X-axis labels – **inside rootG**, vertical, truncate at END
+    // X-axis labels – vertical, **no cropping**, truncate only at END
     // ------------------------------------------------------------------
     const MAX_LABEL_CHARS = 24;
     const xLabelFontSize = 12;
-    const baselineLocal = chartH + 10; // a bit higher to avoid clipping
+    const baselineLocal = chartH + 10; // inside chart group, above bottom of SVG
 
     categories.forEach((cat, i) => {
       const fullLabel = String(cat || "");
       let displayLabel = fullLabel;
 
       if (displayLabel.length > MAX_LABEL_CHARS) {
-        // keep the start, cut off the tail, ellipsis at END
         displayLabel = displayLabel.slice(0, MAX_LABEL_CHARS - 1) + "…";
       }
 
