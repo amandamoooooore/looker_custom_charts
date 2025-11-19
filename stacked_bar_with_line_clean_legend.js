@@ -20,7 +20,7 @@ looker.plugins.visualizations.add({
     use_first_measure_as_line: {
       label: "Use first stacked measure as line",
       type: "boolean",
-      default: true,
+      default: false,
       section: "Data"
     },
     stacked_measures: {
@@ -246,6 +246,41 @@ looker.plugins.visualizations.add({
       (r[xField.name].rendered || r[xField.name].value || "")
     );
 
+    // ---- Dynamic bottom margin + x-label font size based on label length
+    let maxLabelChars = 0;
+    categories.forEach(cat => {
+      const len = String(cat || "").length;
+      if (len > maxLabelChars) maxLabelChars = len;
+    });
+
+    let xLabelFontSize = 12;
+    if (maxLabelChars > 15) xLabelFontSize = 10;
+    if (maxLabelChars > 25) xLabelFontSize = 8;
+
+    const approxCharWidth = xLabelFontSize * 0.6;
+    const angle = Math.PI / 4; // 45 degrees
+    let labelHeight =
+      maxLabelChars * approxCharWidth * Math.sin(angle) +
+      xLabelFontSize * Math.cos(angle);
+
+    let dynamicBottomMargin = Math.min(
+      160,
+      Math.max(60, Math.round(labelHeight + 10))
+    );
+
+    // --------------------------------------------------------
+    // SVG layout
+    // --------------------------------------------------------
+    const width = svg.clientWidth || svg.parentNode.clientWidth || 600;
+    const height = svg.clientHeight || svg.parentNode.clientHeight || 400;
+    const margin = { top: 30, right: 60, bottom: dynamicBottomMargin, left: 60 };
+
+    const chartW = Math.max(width - margin.left - margin.right, 10);
+    const chartH = Math.max(height - margin.top - margin.bottom, 10);
+
+    const xCount = Math.max(categories.length, 1);
+    const xStep = chartW / xCount;
+
     // ---- Determine stacked + line fields
     let stackedFields = (config.stacked_measures || [])
       .map(n => this._fieldByName(meas, n))
@@ -302,19 +337,6 @@ looker.plugins.visualizations.add({
       legend.appendChild(item);
     });
 
-    // --------------------------------------------------------
-    // SVG layout
-    // --------------------------------------------------------
-    const width = svg.clientWidth || svg.parentNode.clientWidth || 600;
-    const height = svg.clientHeight || svg.parentNode.clientHeight || 400;
-    const margin = { top: 30, right: 60, bottom: 80, left: 60 };
-
-    const chartW = Math.max(width - margin.left - margin.right, 10);
-    const chartH = Math.max(height - margin.top - margin.bottom, 10);
-
-    const xCount = Math.max(categories.length, 1);
-    const xStep = chartW / xCount;
-
     // ---- Stack totals / left axis
     const stackTotals = data.map((_, i) =>
       visibleStacked.reduce((sum, s) => sum + (s.data[i] || 0), 0)
@@ -353,10 +375,7 @@ looker.plugins.visualizations.add({
           (leftScale.niceMax - leftScale.niceMin)) *
           chartH;
 
-      const line = document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "line"
-      );
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
       line.setAttribute("x1", 0);
       line.setAttribute("x2", chartW);
       line.setAttribute("y1", y);
@@ -365,10 +384,7 @@ looker.plugins.visualizations.add({
       line.setAttribute("stroke-width", v === 0 ? "1.5" : "1");
       rootG.appendChild(line);
 
-      const txt = document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "text"
-      );
+      const txt = document.createElementNS("http://www.w3.org/2000/svg", "text");
       txt.textContent = formatNumber(v);
       txt.setAttribute("x", -8);
       txt.setAttribute("y", y + 4);
@@ -394,10 +410,7 @@ looker.plugins.visualizations.add({
             (rightScale.niceMax - rightScale.niceMin)) *
             chartH;
 
-        const txt = document.createElementNS(
-          "http://www.w3.org/2000/svg",
-          "text"
-        );
+        const txt = document.createElementNS("http://www.w3.org/2000/svg", "text");
         txt.textContent = Math.round(v);
         txt.setAttribute("x", chartW + 8);
         txt.setAttribute("y", y + 4);
@@ -419,10 +432,7 @@ looker.plugins.visualizations.add({
         if (bbox && bbox.width > maxTickWidth) maxTickWidth = bbox.width;
       });
 
-      const leftAxis = document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "text"
-      );
+      const leftAxis = document.createElementNS("http://www.w3.org/2000/svg", "text");
       leftAxis.textContent = config.yaxis_left_title;
       leftAxis.setAttribute("font-size", "12");
       leftAxis.setAttribute("text-anchor", "middle");
@@ -443,10 +453,7 @@ looker.plugins.visualizations.add({
         if (bbox && bbox.width > maxTickWidth) maxTickWidth = bbox.width;
       });
 
-      const rightAxis = document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "text"
-      );
+      const rightAxis = document.createElementNS("http://www.w3.org/2000/svg", "text");
       rightAxis.textContent = config.yaxis_right_title;
       rightAxis.setAttribute("font-size", "12");
       rightAxis.setAttribute("text-anchor", "middle");
@@ -461,18 +468,15 @@ looker.plugins.visualizations.add({
     }
 
     // --------------------------------------------------------
-    // X-axis labels (rotated)
+    // X-axis labels (rotated, dynamic font size)
     // --------------------------------------------------------
     categories.forEach((cat, i) => {
       const xBase = margin.left + i * xStep + xStep * 0.1;
       const yBase = height - 5;
 
-      const txt = document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "text"
-      );
+      const txt = document.createElementNS("http://www.w3.org/2000/svg", "text");
       txt.textContent = cat;
-      txt.setAttribute("font-size", "12");
+      txt.setAttribute("font-size", String(xLabelFontSize));
       txt.setAttribute("text-anchor", "start");
       txt.setAttribute("transform", `translate(${xBase},${yBase}) rotate(-45)`);
       svg.appendChild(txt);
@@ -494,10 +498,7 @@ looker.plugins.visualizations.add({
         const yTop = yBottom - barHeight;
         const x = i * xStep + xStep * 0.1;
 
-        const rect = document.createElementNS(
-          "http://www.w3.org/2000/svg",
-          "rect"
-        );
+        const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
         rect.setAttribute("x", x);
         rect.setAttribute("y", yTop);
         rect.setAttribute("width", xStep * 0.8);
@@ -528,10 +529,7 @@ looker.plugins.visualizations.add({
         const totalHeight = (total / maxStack) * chartH;
         const y = chartH - totalHeight - 3;
 
-        const txt = document.createElementNS(
-          "http://www.w3.org/2000/svg",
-          "text"
-        );
+        const txt = document.createElementNS("http://www.w3.org/2000/svg", "text");
         txt.textContent = formatNumber(total);
         txt.setAttribute("x", i * xStep + xStep / 2);
         txt.setAttribute("y", y);
@@ -556,24 +554,15 @@ looker.plugins.visualizations.add({
         return { x: px, y: py, value: v };
       });
 
-      const pl = document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "polyline"
-      );
-      pl.setAttribute(
-        "points",
-        points.map(p => `${p.x},${p.y}`).join(" ")
-      );
+      const pl = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+      pl.setAttribute("points", points.map(p => `${p.x},${p.y}`).join(" "));
       pl.setAttribute("fill", "none");
       pl.setAttribute("stroke", lineSeries.color);
       pl.setAttribute("stroke-width", "2");
       rootG.appendChild(pl);
 
       points.forEach(p => {
-        const circ = document.createElementNS(
-          "http://www.w3.org/2000/svg",
-          "circle"
-        );
+        const circ = document.createElementNS("http://www.w3.org/2000/svg", "circle");
         circ.setAttribute("cx", p.x);
         circ.setAttribute("cy", p.y);
         circ.setAttribute("r", 4);
