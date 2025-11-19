@@ -80,7 +80,7 @@ looker.plugins.visualizations.add({
           font-family: Arial, sans-serif;
           display: flex;
           flex-direction: column;
-          overflow: hidden;
+          overflow: hidden; /* avoid scrollbars */
         }
         .svg-tooltip {
           position: absolute;
@@ -95,19 +95,19 @@ looker.plugins.visualizations.add({
           white-space: nowrap;
         }
         .chart-svg {
-          flex: 1 1 auto;
+          flex: 1 1 auto;  /* svg takes remaining height */
           width: 100%;
         }
         .legend {
           display: flex;
           flex-wrap: wrap;
           justify-content: center;
-          margin-top: 6px;
+          margin-top: 6px; /* small gap under x-axis */
         }
         .legend-item {
           display: flex;
           align-items: center;
-          margin: 0 24px 4px 24px;
+          margin: 0 24px 4px 24px; /* spacing between items */
           font-size: 12px;
           cursor: default;
         }
@@ -212,9 +212,8 @@ looker.plugins.visualizations.add({
 
     // ---- Defaults
     if (!config.x_dim && dims[0]) config.x_dim = dims[0].name;
-    if (!config.line_measure && meas[0]) config.line_measure = meas[0].name;
 
-    // By default, include all measures in stacked_measures
+    // If stacked measures not set, default to all measures
     if (!config.stacked_measures || config.stacked_measures.length === 0) {
       config.stacked_measures = meas.map(m => m.name);
     }
@@ -254,15 +253,15 @@ looker.plugins.visualizations.add({
 
     let lineField = null;
 
+    // Toggle: first stacked measure becomes the line
     if (config.use_first_measure_as_line && stackedFields.length > 0) {
-      // Use first stacked measure as line, rest stay stacked
       lineField = stackedFields[0];
-      stackedFields = stackedFields.slice(1);
+      stackedFields = stackedFields.slice(1); // remove it from bars
     } else if (config.line_measure) {
-      // Classic behavior: explicit line_measure
+      // Explicit line measure if user picked one
       lineField = this._fieldByName(meas, config.line_measure);
       if (lineField) {
-        // Remove from stacked if it's there so it doesn't double-count
+        // Make sure it's not also stacked
         stackedFields = stackedFields.filter(f => f.name !== lineField.name);
       }
     }
@@ -288,7 +287,8 @@ looker.plugins.visualizations.add({
       : null;
 
     const treatZero = !!config.treat_zero_as_empty;
-    const isEmpty = arr => !arr.some(v => v != null && (!treatZero ? true : v !== 0));
+    const isEmpty = arr =>
+      !arr.some(v => v != null && (!treatZero ? true : v !== 0));
     const visibleStacked = stackedSeries.filter(s => !isEmpty(s.data));
 
     // --------------------------------------------------------
@@ -342,10 +342,21 @@ looker.plugins.visualizations.add({
     // --------------------------------------------------------
     // Left Y axis grid + labels
     // --------------------------------------------------------
-    for (let v = leftScale.niceMin; v <= leftScale.niceMax + leftScale.tickSpacing / 2; v += leftScale.tickSpacing) {
-      const y = chartH - (v - leftScale.niceMin) / (leftScale.niceMax - leftScale.niceMin) * chartH;
+    for (
+      let v = leftScale.niceMin;
+      v <= leftScale.niceMax + leftScale.tickSpacing / 2;
+      v += leftScale.tickSpacing
+    ) {
+      const y =
+        chartH -
+        ((v - leftScale.niceMin) /
+          (leftScale.niceMax - leftScale.niceMin)) *
+          chartH;
 
-      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      const line = document.createElementNS(
+        "http://www.w3.org/2000/svg",
+        "line"
+      );
       line.setAttribute("x1", 0);
       line.setAttribute("x2", chartW);
       line.setAttribute("y1", y);
@@ -354,7 +365,10 @@ looker.plugins.visualizations.add({
       line.setAttribute("stroke-width", v === 0 ? "1.5" : "1");
       rootG.appendChild(line);
 
-      const txt = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      const txt = document.createElementNS(
+        "http://www.w3.org/2000/svg",
+        "text"
+      );
       txt.textContent = formatNumber(v);
       txt.setAttribute("x", -8);
       txt.setAttribute("y", y + 4);
@@ -369,10 +383,21 @@ looker.plugins.visualizations.add({
     // Right Y axis labels
     // --------------------------------------------------------
     if (lineSeries) {
-      for (let v = rightScale.niceMin; v <= rightScale.niceMax + rightScale.tickSpacing / 2; v += rightScale.tickSpacing) {
-        const y = chartH - (v - rightScale.niceMin) / (rightScale.niceMax - rightScale.niceMin) * chartH;
+      for (
+        let v = rightScale.niceMin;
+        v <= rightScale.niceMax + rightScale.tickSpacing / 2;
+        v += rightScale.tickSpacing
+      ) {
+        const y =
+          chartH -
+          ((v - rightScale.niceMin) /
+            (rightScale.niceMax - rightScale.niceMin)) *
+            chartH;
 
-        const txt = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        const txt = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "text"
+        );
         txt.textContent = Math.round(v);
         txt.setAttribute("x", chartW + 8);
         txt.setAttribute("y", y + 4);
@@ -394,12 +419,15 @@ looker.plugins.visualizations.add({
         if (bbox && bbox.width > maxTickWidth) maxTickWidth = bbox.width;
       });
 
-      const leftAxis = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      const leftAxis = document.createElementNS(
+        "http://www.w3.org/2000/svg",
+        "text"
+      );
       leftAxis.textContent = config.yaxis_left_title;
       leftAxis.setAttribute("font-size", "12");
       leftAxis.setAttribute("text-anchor", "middle");
 
-      const leftX = -(maxTickWidth + 20);
+      const leftX = -(maxTickWidth + 20); // 20px gap from longest label
 
       leftAxis.setAttribute(
         "transform",
@@ -415,12 +443,15 @@ looker.plugins.visualizations.add({
         if (bbox && bbox.width > maxTickWidth) maxTickWidth = bbox.width;
       });
 
-      const rightAxis = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      const rightAxis = document.createElementNS(
+        "http://www.w3.org/2000/svg",
+        "text"
+      );
       rightAxis.textContent = config.yaxis_right_title;
       rightAxis.setAttribute("font-size", "12");
       rightAxis.setAttribute("text-anchor", "middle");
 
-      const rightX = chartW + maxTickWidth + 20;
+      const rightX = chartW + maxTickWidth + 20; // 20px gap from longest label
 
       rightAxis.setAttribute(
         "transform",
@@ -436,7 +467,10 @@ looker.plugins.visualizations.add({
       const xBase = margin.left + i * xStep + xStep * 0.1;
       const yBase = height - 5;
 
-      const txt = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      const txt = document.createElementNS(
+        "http://www.w3.org/2000/svg",
+        "text"
+      );
       txt.textContent = cat;
       txt.setAttribute("font-size", "12");
       txt.setAttribute("text-anchor", "start");
@@ -460,7 +494,10 @@ looker.plugins.visualizations.add({
         const yTop = yBottom - barHeight;
         const x = i * xStep + xStep * 0.1;
 
-        const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        const rect = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "rect"
+        );
         rect.setAttribute("x", x);
         rect.setAttribute("y", yTop);
         rect.setAttribute("width", xStep * 0.8);
@@ -491,7 +528,10 @@ looker.plugins.visualizations.add({
         const totalHeight = (total / maxStack) * chartH;
         const y = chartH - totalHeight - 3;
 
-        const txt = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        const txt = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "text"
+        );
         txt.textContent = formatNumber(total);
         txt.setAttribute("x", i * xStep + xStep / 2);
         txt.setAttribute("y", y);
@@ -508,19 +548,32 @@ looker.plugins.visualizations.add({
     if (lineSeries) {
       const points = lineSeries.data.map((v, i) => {
         const px = i * xStep + xStep / 2;
-        const py = chartH - (v - rightScale.niceMin) / (rightScale.niceMax - rightScale.niceMin) * chartH;
+        const py =
+          chartH -
+          ((v - rightScale.niceMin) /
+            (rightScale.niceMax - rightScale.niceMin)) *
+            chartH;
         return { x: px, y: py, value: v };
       });
 
-      const pl = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
-      pl.setAttribute("points", points.map(p => `${p.x},${p.y}`).join(" "));
+      const pl = document.createElementNS(
+        "http://www.w3.org/2000/svg",
+        "polyline"
+      );
+      pl.setAttribute(
+        "points",
+        points.map(p => `${p.x},${p.y}`).join(" ")
+      );
       pl.setAttribute("fill", "none");
       pl.setAttribute("stroke", lineSeries.color);
       pl.setAttribute("stroke-width", "2");
       rootG.appendChild(pl);
 
       points.forEach(p => {
-        const circ = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        const circ = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "circle"
+        );
         circ.setAttribute("cx", p.x);
         circ.setAttribute("cy", p.y);
         circ.setAttribute("r", 4);
