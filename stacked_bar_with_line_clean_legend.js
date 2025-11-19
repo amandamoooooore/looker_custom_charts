@@ -250,8 +250,8 @@ looker.plugins.visualizations.add({
     );
 
     const LABEL_LONG_THRESHOLD = 15;   // > 15 chars = "long"
-    const marginBottomShort = 80;      // for dates etc.
-    const marginBottomLong  = 170;     // for long vertical labels
+    const marginBottomShort = 100;     // slightly larger so dates don't clip
+    const marginBottomLong  = 190;     // more space for long names
 
     const isLongLabels = maxLabelLen > LABEL_LONG_THRESHOLD;
     const marginBottom = isLongLabels ? marginBottomLong : marginBottomShort;
@@ -449,13 +449,14 @@ looker.plugins.visualizations.add({
     // ------------------------------------------------------------------
     const MAX_LABEL_CHARS = 24;
     const xLabelFontSize = 12;
-    const baselineLocal = chartH + 5; // chart coordinates, not whole SVG
+    const baselineLocal = chartH + 10; // a bit higher to avoid clipping
 
     categories.forEach((cat, i) => {
       const fullLabel = String(cat || "");
       let displayLabel = fullLabel;
 
       if (displayLabel.length > MAX_LABEL_CHARS) {
+        // keep the start, cut off the tail, ellipsis at END
         displayLabel = displayLabel.slice(0, MAX_LABEL_CHARS - 1) + "…";
       }
 
