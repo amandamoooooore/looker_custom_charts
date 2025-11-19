@@ -72,6 +72,9 @@ looker.plugins.visualizations.add({
           width: 100%;
           height: 100%;
           font-family: Arial, sans-serif;
+          display: flex;           /* NEW: flex layout */
+          flex-direction: column;  /* stack svg on top, legend below */
+          overflow: hidden;        /* avoid scrollbars */
         }
         .svg-tooltip {
           position: absolute;
@@ -85,21 +88,23 @@ looker.plugins.visualizations.add({
           z-index: 10;
           white-space: nowrap;
         }
+        .chart-svg {
+          flex: 1 1 auto;          /* NEW: svg takes remaining height */
+          width: 100%;
+        }
         .legend {
           display: flex;
           flex-wrap: wrap;
           justify-content: center;
-          margin-top: 6px; /* small spacing between x-axis labels and legend */
+          margin-top: 6px;         /* small gap under x-axis */
         }
-        
         .legend-item {
           display: flex;
           align-items: center;
-          margin: 0 32px 4px 32px; /* <<< wide spacing between items */
+          margin: 0 24px 4px 24px; /* spacing between items */
           font-size: 12px;
           cursor: default;
         }
-        
         .legend-swatch {
           width: 12px;
           height: 12px;
@@ -109,17 +114,18 @@ looker.plugins.visualizations.add({
   
       <div class="svg-chart-root">
         <div class="svg-tooltip"></div>
-        <svg class="chart-svg" width="100%" height="100%"></svg>
+        <!-- NOTE: removed height="100%" here -->
+        <svg class="chart-svg"></svg>
         <div class="legend"></div>
       </div>
     `;
-
+  
     this._svg = element.querySelector(".chart-svg");
     this._legend = element.querySelector(".legend");
     this._tooltip = element.querySelector(".svg-tooltip");
-
+  
     const root = element.querySelector(".svg-chart-root");
-
+  
     // Re-render on tile resize
     if (window.ResizeObserver) {
       this._resizeObserver = new ResizeObserver(() => {
