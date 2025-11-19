@@ -433,22 +433,72 @@ looker.plugins.visualizations.add({
     }
 
     // ------------------------------------------------------------------
-    // X-axis labels – vertical, truncate at END, auto-shift if clipped
+    // DYNAMIC BOTTOM MARGIN BASED ON ROTATED LABEL HEIGHT
     // ------------------------------------------------------------------
+    
     const MAX_LABEL_CHARS = 24;
     const xLabelFontSize = 12;
+    
+    // pick the longest label text (full length, no truncation)
+    const longestLabel = categories.reduce((a, c) =>
+      (c || "").length > (a || "").length ? c : a
+    , "");
+    
+    // create temp measurement text (not truncated, -90 rotation)
+    const temp = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    temp.textContent = longestLabel;
+    temp.setAttribute("font-size", xLabelFontSize);
+    temp.setAttribute("text-anchor", "middle");
+    temp.setAttribute("transform", "translate(0,0) rotate(-90)");
+    temp.setAttribute("visibility", "hidden");
+    svg.appendChild(temp);
+    
+    // measure height ABOVE the text-anchor origin
+    const bb = temp.getBBox();
+    svg.removeChild(temp);
+    
+    // For -90° text, its top = -bb.height (relative to origin)
+    // We need positive height
+    const labelHeightUpward = bb.height;
+    
+    // Add safe padding
+    let requiredBottom = labelHeightUpward + 30;
+    
+    // Clamp to avoid tiny charts
+    const minBottom = 80;        // enough for dates
+    const maxBottom = height - 150; // keep at least 150px for bars
+    
+    if (requiredBottom < minBottom) requiredBottom = minBottom;
+    if (requiredBottom > maxBottom) requiredBottom = maxBottom;
+    
+    // apply it
+    const margin = {
+      top: 30,
+      right: 60,
+      bottom: requiredBottom,
+      left: 60
+    };
+    
+    const chartW = Math.max(width - margin.left - margin.right, 10);
+    const chartH = Math.max(height - margin.top - margin.bottom, 10);
+    
+    // baseline for rotated labels
     const baselineLocal = chartH + 10;
-
+    
+    // ------------------------------------------------------------------
+    // DRAW X LABELS (truncate at end, auto-shift if needed)
+    // ------------------------------------------------------------------
     categories.forEach((cat, i) => {
       const fullLabel = String(cat || "");
       let displayLabel = fullLabel;
-
+    
+      // truncate at END
       if (displayLabel.length > MAX_LABEL_CHARS) {
         displayLabel = displayLabel.slice(0, MAX_LABEL_CHARS - 1) + "…";
       }
-
+    
       let xLocal = i * xStep + xStep / 2;
-
+    
       const txt = document.createElementNS("http://www.w3.org/2000/svg", "text");
       txt.textContent = displayLabel;
       txt.setAttribute("font-size", String(xLabelFontSize));
@@ -458,7 +508,8 @@ looker.plugins.visualizations.add({
         `translate(${xLocal},${baselineLocal}) rotate(-90)`
       );
       txt.setAttribute("fill", "#333");
-
+    
+      // hover shows full label
       txt.addEventListener("mousemove", evt => {
         tooltip.style.display = "block";
         tooltip.style.left = evt.pageX + 10 + "px";
@@ -468,13 +519,13 @@ looker.plugins.visualizations.add({
       txt.addEventListener("mouseleave", () => {
         tooltip.style.display = "none";
       });
-
+    
       rootG.appendChild(txt);
-
-      // --- FIX: if this label's bbox starts left of 0, nudge it right
+    
+      // if clipped on the left, shift it right
       const bbox = txt.getBBox();
       if (bbox.x < 0) {
-        const dx = -bbox.x + 2; // small padding
+        const dx = -bbox.x + 2;
         xLocal += dx;
         txt.setAttribute(
           "transform",
