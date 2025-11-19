@@ -239,12 +239,12 @@ looker.plugins.visualizations.add({
     );
 
     // ------------------------------------------------------------------
-    // Layout – fixed generous bottom margin so labels never clip
+    // Layout – fixed generous margins
     // ------------------------------------------------------------------
     const width = svg.clientWidth || svg.parentNode.clientWidth || 600;
     const height = svg.clientHeight || svg.parentNode.clientHeight || 400;
 
-    const margin = { top: 30, right: 60, bottom: 170, left: 60 };
+    const margin = { top: 30, right: 60, bottom: 170, left: 120 }; // LEFT BUMPED TO 120
 
     const chartW = Math.max(width - margin.left - margin.right, 10);
     const chartH = Math.max(height - margin.top - margin.bottom, 10);
@@ -433,11 +433,11 @@ looker.plugins.visualizations.add({
     }
 
     // ------------------------------------------------------------------
-    // X-axis labels – vertical, **no cropping**, truncate only at END
+    // X-axis labels – vertical, centered, truncate only at END
     // ------------------------------------------------------------------
     const MAX_LABEL_CHARS = 24;
     const xLabelFontSize = 12;
-    const baselineLocal = chartH + 10; // inside chart group, above bottom of SVG
+    const baselineLocal = chartH + 10;
 
     categories.forEach((cat, i) => {
       const fullLabel = String(cat || "");
@@ -452,7 +452,7 @@ looker.plugins.visualizations.add({
       const txt = document.createElementNS("http://www.w3.org/2000/svg", "text");
       txt.textContent = displayLabel;
       txt.setAttribute("font-size", String(xLabelFontSize));
-      txt.setAttribute("text-anchor", "end");
+      txt.setAttribute("text-anchor", "middle"); // <-- changed from "end"
       txt.setAttribute(
         "transform",
         `translate(${xLocal},${baselineLocal}) rotate(-90)`
