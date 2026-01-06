@@ -202,11 +202,11 @@ looker.plugins.visualizations.add({
     // Keep a reference for cross-filter triggers
     const viz = this;
 
-    // Helpers
     const getRendered = (row, field) => {
       const cell = row[field.name];
       if (!cell) return null;
-      return (cell.html ?? cell.rendered ?? cell.value) || null;
+      const v = (cell.html ?? cell.rendered ?? cell.value);
+      return (v === null || v === undefined) ? null : v;
     };
     const getRaw = (row, field) => {
       const cell = row[field.name];
