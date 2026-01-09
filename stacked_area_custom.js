@@ -210,7 +210,6 @@ looker.plugins.visualizations.add({
       minimumFractionDigits: 0
     });
 
-    // updated
     const formatGBPInText = (text) => {
       if (text == null) return null;
     
@@ -316,8 +315,8 @@ looker.plugins.visualizations.add({
         if (!isActive(k)) continue;
         const leftY = (k - 1 >= 0 && arr[k - 1]) ? arr[k - 1].y : null;
         const rightY = (k + 1 < arr.length && arr[k + 1]) ? arr[k + 1].y : null;
-
-        if (leftY === 0 && rightY === 0) {
+        // update
+        if (leftY === 0 && rightY === 0 && !!config.show_markers) {
           arr[k].marker = { enabled: true, radius: 4 };
         }
       }
