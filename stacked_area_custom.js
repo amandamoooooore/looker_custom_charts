@@ -210,16 +210,16 @@ looker.plugins.visualizations.add({
       minimumFractionDigits: 0
     });
 
-    // Only format numbers NOT already prefixed with £, and support comma thousands.
+    // updated
     const formatGBPInText = (text) => {
       if (text == null) return null;
     
       return String(text).replace(
-        /(^|[^\d£])(-?\d+(?:,\d{3})*)(?![\d.%])/g,
-        (match, prefix, number) => {
-          const numeric = Number(number.replace(/,/g, ""));
+        /(?<![£\d,])(-?\d{1,3}(?:,\d{3})*|\d+)(?![\d.%])/g,
+        (match) => {
+          const numeric = Number(match.replace(/,/g, ""));
           if (!Number.isFinite(numeric)) return match;
-          return `${prefix}${gbpFormatter.format(numeric)}`;
+          return gbpFormatter.format(numeric);
         }
       );
     };
