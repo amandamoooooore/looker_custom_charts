@@ -215,9 +215,9 @@ looker.plugins.visualizations.add({
       if (text == null) return null;
     
       return String(text).replace(
-        /(^|[^£\d])(-?(?:\d{1,3}(?:,\d{3})+|\d+))(?![\d.%])/g,
+        /(^|[^\d£])(-?\d+(?:,\d{3})*)(?![\d.%])/g,
         (match, prefix, number) => {
-          const numeric = Number(String(number).replace(/,/g, ""));
+          const numeric = Number(number.replace(/,/g, ""));
           if (!Number.isFinite(numeric)) return match;
           return `${prefix}${gbpFormatter.format(numeric)}`;
         }
