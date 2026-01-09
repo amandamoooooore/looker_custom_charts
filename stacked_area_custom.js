@@ -213,9 +213,9 @@ looker.plugins.visualizations.add({
     // Only format numbers NOT already prefixed with £, and support comma thousands.
     const formatGBPInText = (text) => {
       if (text == null) return null;
-
+    
       return String(text).replace(
-        /(^|[^£\d])(-?\d{1,3}(?:,\d{3})*)(?![\d.%])/g,
+        /(^|[^£\d])(-?(?:\d{1,3}(?:,\d{3})+|\d+))(?![\d.%])/g,
         (match, prefix, number) => {
           const numeric = Number(String(number).replace(/,/g, ""));
           if (!Number.isFinite(numeric)) return match;
