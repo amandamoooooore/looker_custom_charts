@@ -154,7 +154,6 @@ looker.plugins.visualizations.add({
     const dims = fields.dimension_like || [];
     const meas = fields.measure_like || [];
 
-    // defaults for core fields
     const dimChoices  = (dims || []).map(d => d && d.name).filter(Boolean);
     const measChoices = (meas || []).map(m => m && m.name).filter(Boolean);
 
@@ -205,7 +204,6 @@ looker.plugins.visualizations.add({
     const getRaw = (row, f) => {
       const c = getCell(row, f);
       if (!c) return null;
-      // Looker sometimes has { value: ... } for both dims/measures
       if ("value" in c) return c.value;
       return null;
     };
@@ -226,7 +224,6 @@ looker.plugins.visualizations.add({
 
     const normalizeTooltip = (val) => {
       if (val == null) return null;
-      // If Looker gives an object for some reason, stringify it
       if (typeof val === "object") {
         try { return JSON.stringify(val); } catch { return String(val); }
       }
@@ -248,7 +245,7 @@ looker.plugins.visualizations.add({
     };
 
     const categoriesSet = new Set();
-    const seriesMap = new Map(); // name -> [{xLabel, y, html, raw}]
+    const seriesMap = new Map();
 
     // Price change flags: xLabel -> { changed, tip }
     const priceChangeByX = new Map();
@@ -261,13 +258,11 @@ looker.plugins.visualizations.add({
 
       if (!usingForcedX) categoriesSet.add(xLabel);
 
-      // capture price-change info once per day
       if (config.show_price_flags && flagF) {
         const flagVal = getRaw(row, flagF) ?? getRendered(row, flagF);
         const changed = isTruthy(flagVal);
 
         if (changed && !priceChangeByX.has(xLabel)) {
-          // IMPORTANT: tooltip may be raw/rendered/html; store whichever exists
           const tipVal = flagTipF ? (getRendered(row, flagTipF) ?? getRaw(row, flagTipF)) : null;
           priceChangeByX.set(xLabel, { changed: true, tip: normalizeTooltip(tipVal) });
         }
@@ -314,49 +309,42 @@ looker.plugins.visualizations.add({
       });
     }
 
-    // sort legend (and stacking order) alphabetically if required
     if (config.legend_sort_alpha) {
       series.sort((a, b) => a.name.localeCompare(b.name));
     }
 
-    // ---- Y-axis max (so the flag can sit at the top) ----
+    // totals & axis max
     const totals = categories.map((_, i) =>
       series.reduce((sum, s) => sum + (s.data?.[i]?.y || 0), 0)
     );
     const maxTotal = Math.max(...totals, 0);
 
-    // Give headroom so the marker/label isn’t clipped.
-    // If your y values are huge, this still scales nicely.
-    const yAxisMax = maxTotal > 0 ? (maxTotal * 1.25) : 1;
+    // ✅ less headroom than before
+    const yAxisMax = maxTotal > 0 ? (maxTotal * 1.10) : 1;
 
-    // Place the flag near the top line of the axis (slightly below to avoid clipping)
-    const flagY = yAxisMax * 0.92;
+    // ✅ place flag near top but inside plot
+    const flagY = yAxisMax * 0.96;
 
-    // ---- Flag points + plotLines ----
+    // flag points + store x indices for custom line drawing
     const flagPoints = [];
-    const plotLines = [];
+    const flagXIndices = [];
 
     if (config.show_price_flags && priceChangeByX.size > 0) {
       categories.forEach((cat, i) => {
         const info = priceChangeByX.get(String(cat));
         if (info?.changed) {
+          flagXIndices.push(i);
           flagPoints.push({
-            x: i,              // category index
-            y: flagY,          // top of axis
+            x: i,
+            y: flagY,
             custom: { isPriceFlag: true, tip: info.tip }
           });
-
-          if (config.show_price_flag_lines) {
-            plotLines.push({
-              value: i,
-              color: "#0b1020",
-              width: 3,
-              zIndex: 6
-            });
-          }
         }
       });
     }
+
+    // marker sizing (used for line gap too)
+    const markerRadius = 18;
 
     if (flagPoints.length) {
       series.push({
@@ -365,16 +353,14 @@ looker.plugins.visualizations.add({
         showInLegend: false,
         data: flagPoints,
 
-        // Ensure marker is solid + visible
         marker: {
           symbol: "circle",
-          radius: 18,
+          radius: markerRadius,
           fillColor: "rgba(255,255,255,1)",
           lineColor: "#0b1020",
           lineWidth: 3
         },
 
-        // Ensure the £ is drawn on top of the marker
         dataLabels: {
           enabled: true,
           allowOverlap: true,
@@ -403,8 +389,51 @@ looker.plugins.visualizations.add({
       chart: {
         type: "area",
         spacing: [10,10,10,10],
-        height: element.clientHeight || 360
+        height: element.clientHeight || 360,
+
+        // ✅ draw custom vertical lines that stop BEFORE the circle
+        events: {
+          render: function () {
+            const chart = this;
+
+            // remove any previous custom lines
+            if (chart._priceFlagLinesGroup) {
+              chart._priceFlagLinesGroup.destroy();
+              chart._priceFlagLinesGroup = null;
+            }
+
+            if (!config.show_price_flag_lines || !flagXIndices.length) return;
+
+            const xAxis = chart.xAxis[0];
+            const yAxis = chart.yAxis[0];
+
+            chart._priceFlagLinesGroup = chart.renderer.g("price-flag-lines").add();
+
+            const xToPix = (idx) => xAxis.toPixels(idx, true);
+
+            const yTopPix = yAxis.toPixels(flagY, true);
+            const yBottomPix = yAxis.toPixels(0, true);
+
+            // end line just below circle bottom so it doesn't pass through
+            const gapPx = markerRadius + 6;
+            const yEndPix = yTopPix + gapPx;
+
+            flagXIndices.forEach((idx) => {
+              const xPix = xToPix(idx);
+
+              chart.renderer
+                .path(["M", xPix, yBottomPix, "L", xPix, yEndPix])
+                .attr({
+                  stroke: "#0b1020",
+                  "stroke-width": 3,
+                  zIndex: 6
+                })
+                .add(chart._priceFlagLinesGroup);
+            });
+          }
+        }
       },
+
       credits: { enabled: false },
       title: { text: null },
       exporting: { enabled: false },
@@ -416,13 +445,12 @@ looker.plugins.visualizations.add({
         tickmarkPlacement: "on",
         labels: {
           step: Number.isFinite(+config.x_label_step) && +config.x_label_step > 0 ? +config.x_label_step : 1
-        },
-        plotLines
+        }
       },
 
       yAxis: {
         min: 0,
-        max: yAxisMax, // <-- key change: axis max includes headroom for flag at top
+        max: yAxisMax,
         title: {
           text: (config.y_axis_title && config.y_axis_title.trim())
             ? config.y_axis_title.trim()
@@ -436,9 +464,7 @@ looker.plugins.visualizations.add({
       },
 
       plotOptions: {
-        series: {
-          clip: false // helps prevent the top marker/label from being clipped
-        },
+        series: { clip: false },
         area: {
           stacking: "normal",
           marker: { enabled: !!config.show_markers, radius: 3 },
@@ -481,18 +507,13 @@ looker.plugins.visualizations.add({
         formatter: function () {
           const wrap = (html) => `<div class="sa-tip-inner">${html}</div>`;
 
-          // Price flag tooltip
           if (this.point?.custom?.isPriceFlag) {
             const tip = this.point.custom.tip;
-
-            // If the stored tooltip looks like HTML, use it as-is; otherwise escape it.
             if (tip && /<[^>]+>/.test(tip)) return wrap(tip);
             if (tip) return wrap(viz._escapeHTML(tip));
-
             return wrap("<b>Price changed</b>");
           }
 
-          // Existing HTML tooltip per-point (if enabled)
           if (config.use_tooltip_field && this.point?.custom?.html) {
             return wrap(this.point.custom.html);
           }
