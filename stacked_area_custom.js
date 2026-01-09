@@ -300,9 +300,11 @@ looker.plugins.visualizations.add({
     );
     const maxTotal = Math.max(...totals, 0);
 
-    // modest headroom
-    const yAxisMax = maxTotal > 0 ? (maxTotal * 1.10) : 1;
-    const flagY = yAxisMax * 0.96;
+    // ✅ MUCH smaller headroom now (3%)
+    const yAxisMax = maxTotal > 0 ? (maxTotal * 1.03) : 1;
+
+    // ✅ keep flags near the top of the axis without forcing huge scale changes
+    const flagY = yAxisMax * 0.985;
 
     const markerRadius = 18;
 
@@ -321,7 +323,7 @@ looker.plugins.visualizations.add({
       });
     }
 
-    // add flag scatter series with an ID so we can align lines to pt.plotX
+    // add flag scatter series with ID
     if (flagPoints.length) {
       series.push({
         id: "price-change-flags",
@@ -368,13 +370,12 @@ looker.plugins.visualizations.add({
         spacing: [10,10,10,10],
         height: element.clientHeight || 360,
 
-        // Draw custom vertical lines that stop BEFORE the circle,
-        // aligned to the *actual rendered X* of each flag point.
+        // Draw custom vertical lines aligned to the actual rendered X of each flag point.
+        // ✅ lines meet x-axis; ✅ lines draw above gridlines
         events: {
           render: function () {
             const chart = this;
 
-            // remove any previous custom lines
             if (chart._priceFlagLinesGroup) {
               chart._priceFlagLinesGroup.destroy();
               chart._priceFlagLinesGroup = null;
@@ -387,9 +388,15 @@ looker.plugins.visualizations.add({
 
             const yAxis = chart.yAxis[0];
 
-            chart._priceFlagLinesGroup = chart.renderer.g("price-flag-lines").add();
+            // draw in a group with high zIndex so it sits above gridlines/areas
+            chart._priceFlagLinesGroup = chart.renderer
+              .g("price-flag-lines")
+              .attr({ zIndex: 50 })
+              .add();
 
             const yTopPix = yAxis.toPixels(flagY, true);
+
+            // ✅ bottom meets the x-axis (y=0 line)
             const yBottomPix = yAxis.toPixels(0, true);
 
             // stop line just below the circle so it doesn't pass through
@@ -406,7 +413,7 @@ looker.plugins.visualizations.add({
                 .attr({
                   stroke: "#0b1020",
                   "stroke-width": 3,
-                  zIndex: 6
+                  zIndex: 50
                 })
                 .add(chart._priceFlagLinesGroup);
             });
@@ -438,10 +445,7 @@ looker.plugins.visualizations.add({
         }
       },
 
-      legend: {
-        align: "center",
-        verticalAlign: "bottom"
-      },
+      legend: { align: "center", verticalAlign: "bottom" },
 
       plotOptions: {
         series: { clip: false },
