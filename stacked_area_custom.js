@@ -23,21 +23,8 @@ looker.plugins.visualizations.add({
 
     // --- PRICE FLAGS (by column number) ---
     show_price_flags: { label: "Show Price Change Flags", type: "boolean", default: true, section: "Price Flags" },
-
-    price_change_flag_col: {
-      label: "Price Change Flag Column (1-based)",
-      type: "number",
-      default: 4,
-      section: "Price Flags"
-    },
-
-    price_change_tooltip_col: {
-      label: "Price Change Tooltip Column (1-based)",
-      type: "number",
-      default: 10,
-      section: "Price Flags"
-    },
-
+    price_change_flag_col: { label: "Price Change Flag Column (1-based)", type: "number", default: 4, section: "Price Flags" },
+    price_change_tooltip_col: { label: "Price Change Tooltip Column (1-based)", type: "number", default: 10, section: "Price Flags" },
     show_price_flag_lines: { label: "Show Vertical Flag Lines", type: "boolean", default: true, section: "Price Flags" },
     price_flag_icon: { label: "Flag Icon Text", type: "string", default: "£", section: "Price Flags" },
 
@@ -192,22 +179,19 @@ looker.plugins.visualizations.add({
       return;
     }
 
-    // helpers (robust for dim/measure)
+    // helpers
     const getCell = (row, f) => (row && f && row[f.name]) ? row[f.name] : null;
-
     const getRendered = (row, f) => {
       const c = getCell(row, f);
       if (!c) return null;
       return c.html ?? c.rendered ?? c.value ?? null;
     };
-
     const getRaw = (row, f) => {
       const c = getCell(row, f);
       if (!c) return null;
       if ("value" in c) return c.value;
       return null;
     };
-
     const getNum = (row, f) => {
       const c = getCell(row, f);
       const v = Number(c?.value);
@@ -246,9 +230,7 @@ looker.plugins.visualizations.add({
 
     const categoriesSet = new Set();
     const seriesMap = new Map();
-
-    // Price change flags: xLabel -> { changed, tip }
-    const priceChangeByX = new Map();
+    const priceChangeByX = new Map(); // xLabel -> { changed, tip }
 
     data.forEach(row => {
       const xLabel = String(getRendered(row, xF));
@@ -286,11 +268,10 @@ looker.plugins.visualizations.add({
       return;
     }
 
-    // parse colour map and deselection list
     const colorMap = this._parseColorMap(config.series_color_map);
     const deselectSet = this._parseListToSet(config.legend_deselected_values);
 
-    // build stacked area series over full category range (fill gaps with 0)
+    // build stacked area series
     let series = [];
     for (const [name, points] of seriesMap.entries()) {
       const byX = new Map(points.map(p => [String(p.xLabel), p]));
@@ -319,21 +300,18 @@ looker.plugins.visualizations.add({
     );
     const maxTotal = Math.max(...totals, 0);
 
-    // ✅ less headroom than before
+    // modest headroom
     const yAxisMax = maxTotal > 0 ? (maxTotal * 1.10) : 1;
-
-    // ✅ place flag near top but inside plot
     const flagY = yAxisMax * 0.96;
 
-    // flag points + store x indices for custom line drawing
-    const flagPoints = [];
-    const flagXIndices = [];
+    const markerRadius = 18;
 
+    // build flag points
+    const flagPoints = [];
     if (config.show_price_flags && priceChangeByX.size > 0) {
       categories.forEach((cat, i) => {
         const info = priceChangeByX.get(String(cat));
         if (info?.changed) {
-          flagXIndices.push(i);
           flagPoints.push({
             x: i,
             y: flagY,
@@ -343,11 +321,10 @@ looker.plugins.visualizations.add({
       });
     }
 
-    // marker sizing (used for line gap too)
-    const markerRadius = 18;
-
+    // add flag scatter series with an ID so we can align lines to pt.plotX
     if (flagPoints.length) {
       series.push({
+        id: "price-change-flags",
         type: "scatter",
         name: "Price change",
         showInLegend: false,
@@ -391,7 +368,8 @@ looker.plugins.visualizations.add({
         spacing: [10,10,10,10],
         height: element.clientHeight || 360,
 
-        // ✅ draw custom vertical lines that stop BEFORE the circle
+        // Draw custom vertical lines that stop BEFORE the circle,
+        // aligned to the *actual rendered X* of each flag point.
         events: {
           render: function () {
             const chart = this;
@@ -402,24 +380,26 @@ looker.plugins.visualizations.add({
               chart._priceFlagLinesGroup = null;
             }
 
-            if (!config.show_price_flag_lines || !flagXIndices.length) return;
+            if (!config.show_price_flag_lines) return;
 
-            const xAxis = chart.xAxis[0];
+            const flagSeries = chart.get("price-change-flags");
+            if (!flagSeries || !flagSeries.points || !flagSeries.points.length) return;
+
             const yAxis = chart.yAxis[0];
 
             chart._priceFlagLinesGroup = chart.renderer.g("price-flag-lines").add();
 
-            const xToPix = (idx) => xAxis.toPixels(idx, true);
-
             const yTopPix = yAxis.toPixels(flagY, true);
             const yBottomPix = yAxis.toPixels(0, true);
 
-            // end line just below circle bottom so it doesn't pass through
+            // stop line just below the circle so it doesn't pass through
             const gapPx = markerRadius + 6;
             const yEndPix = yTopPix + gapPx;
 
-            flagXIndices.forEach((idx) => {
-              const xPix = xToPix(idx);
+            flagSeries.points.forEach((pt) => {
+              if (pt.isNull || pt.plotX == null) return;
+
+              const xPix = chart.plotLeft + pt.plotX;
 
               chart.renderer
                 .path(["M", xPix, yBottomPix, "L", xPix, yEndPix])
