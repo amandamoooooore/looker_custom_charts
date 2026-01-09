@@ -157,6 +157,7 @@ looker.plugins.visualizations.add({
     const vF = this._resolveField(meas, config.value_measure);
     const tooltipF = config.use_tooltip_field ? (meas[1] || null) : null;
 
+    // Column-number (1-based) resolution: dims then meas
     const orderedFields = [...dims, ...meas];
     const fieldByCol = (col1Based) => {
       const idx = Math.floor(Number(col1Based)) - 1;
@@ -211,6 +212,7 @@ looker.plugins.visualizations.add({
       return String(val);
     };
 
+    // Build the X categories
     const usingForcedX =
       !!config.force_x_range && Number.isFinite(+config.x_min) &&
       Number.isFinite(+config.x_max) && Number.isFinite(+config.x_step) &&
@@ -225,7 +227,7 @@ looker.plugins.visualizations.add({
     };
 
     const categoriesSet = new Set();
-    const seriesMap = new Map();
+    const seriesMap = new Map(); // name -> [{xLabel, y, html, raw}]
     const priceChangeByX = new Map();
 
     data.forEach(row => {
@@ -267,21 +269,29 @@ looker.plugins.visualizations.add({
     const colorMap = this._parseColorMap(config.series_color_map);
     const deselectSet = this._parseListToSet(config.legend_deselected_values);
 
+    // Build series over full category range.
+    // IMPORTANT: use null (not 0) for "no activity" so there is no baseline line and no tooltip.
     let series = [];
     for (const [name, points] of seriesMap.entries()) {
       const byX = new Map(points.map(p => [String(p.xLabel), p]));
+
       const dataArr = categories.map(cat => {
         const p = byX.get(String(cat));
-        return p
-          ? { y: p.y, custom: { html: p.html, raw: p.raw } }
-          : { y: 0 };
+        if (!p) return null;
+
+        // Treat 0 as "no activity" too (removes flat 0 line/tooltips)
+        if (p.y == null || p.y === 0) return null;
+
+        return { y: p.y, custom: { html: p.html, raw: p.raw } };
       });
+
       series.push({
         type: "area",
         name,
         data: dataArr,
         color: colorMap.get(name),
-        visible: !deselectSet.has(name)
+        visible: !deselectSet.has(name),
+        connectNulls: false
       });
     }
 
@@ -289,6 +299,8 @@ looker.plugins.visualizations.add({
       series.sort((a, b) => a.name.localeCompare(b.name));
     }
 
+    // Compute an anchor value for flag placement (no y-axis manipulation).
+    // Use max stacked total across categories, treating null as 0.
     const totals = categories.map((_, i) =>
       series.reduce((sum, s) => sum + (s.data?.[i]?.y || 0), 0)
     );
@@ -305,7 +317,7 @@ looker.plugins.visualizations.add({
         if (info?.changed) {
           flagPoints.push({
             x: i,
-            y: maxTotal,
+            y: maxTotal || 0,
             custom: { isPriceFlag: true, tip: info.tip }
           });
         }
@@ -370,6 +382,7 @@ looker.plugins.visualizations.add({
 
             const plotBottomPix = Math.round(chart.plotTop + chart.plotHeight + 1);
 
+            // Draw a black x-axis line on top of everything
             chart._customXAxisLine = chart.renderer
               .path(["M", chart.plotLeft, plotBottomPix, "L", chart.plotLeft + chart.plotWidth, plotBottomPix])
               .attr({
@@ -396,9 +409,7 @@ looker.plugins.visualizations.add({
               const xPix = chart.plotLeft + pt.plotX;
               const yCenterPix = chart.plotTop + pt.plotY;
 
-              // End at the circle's outer edge.
-              // Circle outer edge is radius + (circle stroke / 2).
-              // With a square linecap, this removes visible gap without pushing far into the circle.
+              // End at the circle's outer edge (no visible gap, no cutting into fill)
               const yEndPix = Math.min(
                 yCenterPix + markerRadius + (circleStrokeWidth / 2),
                 plotBottomPix
@@ -448,6 +459,7 @@ looker.plugins.visualizations.add({
         series: { clip: false },
         area: {
           stacking: "normal",
+          connectNulls: false,
           marker: { enabled: !!config.show_markers, radius: 3 },
           opacity: Math.max(0, Math.min(1, +config.area_opacity || 0.6)),
           cursor: "pointer",
@@ -486,6 +498,11 @@ looker.plugins.visualizations.add({
         style: { color: "#000", whiteSpace: "nowrap" },
 
         formatter: function () {
+          // Suppress tooltips for null/zero points (prevents the 0.0000 tooltip issue)
+          if (this.point && (this.point.y == null || this.point.y === 0) && !this.point.custom?.isPriceFlag) {
+            return false;
+          }
+
           const wrap = (html) => `<div class="sa-tip-inner">${html}</div>`;
 
           if (this.point?.custom?.isPriceFlag) {
