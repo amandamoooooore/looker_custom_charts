@@ -21,25 +21,23 @@ looker.plugins.visualizations.add({
     series_dim:    { label: "Series Dimension", type: "string", display: "select", values: [], section: "Data" },
     value_measure: { label: "Value Measure", type: "string", display: "select", values: [], section: "Data" },
 
-    // --- PRICE FLAGS ---
+    // --- PRICE FLAGS (by column number) ---
     show_price_flags: {
       label: "Show Price Change Flags",
       type: "boolean",
       default: true,
       section: "Price Flags"
     },
-    price_change_flag_field: {
-      label: "Price Change Flag (boolean dimension)",
-      type: "string",
-      display: "select",
-      values: [],
+    price_change_flag_col: {
+      label: "Price Change Flag Column (1-based)",
+      type: "number",
+      default: 4,
       section: "Price Flags"
     },
-    price_change_tooltip_field: {
-      label: "Price Change Tooltip (dimension/measure)",
-      type: "string",
-      display: "select",
-      values: [],
+    price_change_tooltip_col: {
+      label: "Price Change Tooltip Column (1-based)",
+      type: "number",
+      default: 10,
       section: "Price Flags"
     },
     show_price_flag_lines: {
@@ -178,9 +176,9 @@ looker.plugins.visualizations.add({
     const dims = fields.dimension_like || [];
     const meas = fields.measure_like || [];
 
-    // defaults
-    const dimChoices  = dims.map(d => d.name);
-    const measChoices = meas.map(m => m.name);
+    // defaults for core fields
+    const dimChoices  = (dims || []).map(d => d && d.name).filter(Boolean);
+    const measChoices = (meas || []).map(m => m && m.name).filter(Boolean);
 
     if (!config.x_dim && dimChoices[0])                         config.x_dim = dimChoices[0];
     if (!config.series_dim && (dimChoices[1] || dimChoices[0]))  config.series_dim = dimChoices[1] || dimChoices[0];
@@ -189,24 +187,23 @@ looker.plugins.visualizations.add({
     this.options.x_dim.values         = dimChoices;
     this.options.series_dim.values    = dimChoices;
     this.options.value_measure.values = measChoices;
-
-    // price flag dropdown values
-    const allFieldChoices = [...dimChoices, ...measChoices];
-    this.options.price_change_flag_field.values = dimChoices;       // usually boolean dimension
-    this.options.price_change_tooltip_field.values = allFieldChoices; // dimension OR measure
-
     this.trigger("registerOptions", this.options);
 
     const xF = this._resolveField(dims, config.x_dim);
     const sF = this._resolveField(dims, config.series_dim);
     const vF = this._resolveField(meas, config.value_measure);
-
     const tooltipF = config.use_tooltip_field ? (meas[1] || null) : null;
 
-    const flagF = this._resolveField(dims, config.price_change_flag_field);
-    const flagTipF =
-      this._resolveField(dims, config.price_change_tooltip_field) ||
-      this._resolveField(meas, config.price_change_tooltip_field);
+    // Column-number (1-based) resolution: dims then meas
+    const orderedFields = [...dims, ...meas];
+    const fieldByCol = (col1Based) => {
+      const idx = Math.floor(Number(col1Based)) - 1;
+      if (!Number.isFinite(idx) || idx < 0 || idx >= orderedFields.length) return null;
+      return orderedFields[idx];
+    };
+
+    const flagF = fieldByCol(config.price_change_flag_col);       // e.g. 4
+    const flagTipF = fieldByCol(config.price_change_tooltip_col); // e.g. 10
 
     const container = document.getElementById("area_chart");
     if (!xF || !sF || !vF) {
@@ -219,10 +216,10 @@ looker.plugins.visualizations.add({
     }
 
     // helpers
-    const getRendered = (row, f) => row[f.name]?.html ?? row[f.name]?.rendered ?? row[f.name]?.value ?? null;
-    const getRaw = (row, f) => ('value' in (row[f.name] || {})) ? row[f.name].value : null;
+    const getRendered = (row, f) => row?.[f?.name]?.html ?? row?.[f?.name]?.rendered ?? row?.[f?.name]?.value ?? null;
+    const getRaw = (row, f) => (row?.[f?.name] && ('value' in row[f.name])) ? row[f.name].value : null;
     const getNum = (row, f) => {
-      const v = Number(row[f.name]?.value);
+      const v = Number(row?.[f?.name]?.value);
       return Number.isFinite(v) ? v : null;
     };
 
@@ -262,9 +259,10 @@ looker.plugins.visualizations.add({
 
       if (!usingForcedX) categoriesSet.add(xLabel);
 
-      // capture price-change info once per day
+      // capture price-change info once per day (works whether flagF is dim or measure)
       if (config.show_price_flags && flagF) {
-        const changed = isTruthy(getRaw(row, flagF));
+        const flagVal = getRaw(row, flagF) ?? getRendered(row, flagF);
+        const changed = isTruthy(flagVal);
         if (changed && !priceChangeByX.has(xLabel)) {
           const tip = flagTipF ? getRendered(row, flagTipF) : null;
           priceChangeByX.set(xLabel, { changed: true, tipHtml: tip });
@@ -443,7 +441,7 @@ looker.plugins.visualizations.add({
       },
 
       tooltip: {
-        useHTML: true,             // needed for flag tooltip HTML too
+        useHTML: true,
         className: "sa-tooltip",
         outside: true,
         backgroundColor: "#fff",
