@@ -295,6 +295,8 @@ looker.plugins.visualizations.add({
     const maxTotal = Math.max(...totals, 0);
 
     const markerRadius = 18;
+    const circleStrokeWidth = 3;
+    const lineStrokeWidth = 3;
 
     const flagPoints = [];
     if (config.show_price_flags && priceChangeByX.size > 0) {
@@ -322,7 +324,7 @@ looker.plugins.visualizations.add({
           radius: markerRadius,
           fillColor: "rgba(255,255,255,1)",
           lineColor: "#0b1020",
-          lineWidth: 3
+          lineWidth: circleStrokeWidth
         },
         dataLabels: {
           enabled: true,
@@ -368,7 +370,6 @@ looker.plugins.visualizations.add({
 
             const plotBottomPix = Math.round(chart.plotTop + chart.plotHeight + 1);
 
-            // Draw a black x-axis line on top of everything
             chart._customXAxisLine = chart.renderer
               .path(["M", chart.plotLeft, plotBottomPix, "L", chart.plotLeft + chart.plotWidth, plotBottomPix])
               .attr({
@@ -395,16 +396,19 @@ looker.plugins.visualizations.add({
               const xPix = chart.plotLeft + pt.plotX;
               const yCenterPix = chart.plotTop + pt.plotY;
 
-              // End below the circle so the line does not cut into it (creates a small gap).
-              const gapBelowCirclePx = 4;
-              const yEndPixRaw = yCenterPix + markerRadius + gapBelowCirclePx;
-              const yEndPix = Math.min(yEndPixRaw, plotBottomPix);
+              // End at the circle's outer edge.
+              // Circle outer edge is radius + (circle stroke / 2).
+              // With a square linecap, this removes visible gap without pushing far into the circle.
+              const yEndPix = Math.min(
+                yCenterPix + markerRadius + (circleStrokeWidth / 2),
+                plotBottomPix
+              );
 
               chart.renderer
                 .path(["M", xPix, plotBottomPix, "L", xPix, yEndPix])
                 .attr({
                   stroke: "#0b1020",
-                  "stroke-width": 3,
+                  "stroke-width": lineStrokeWidth,
                   "stroke-linecap": "square",
                   zIndex: 90
                 })
