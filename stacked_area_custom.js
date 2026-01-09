@@ -203,12 +203,28 @@ looker.plugins.visualizations.add({
       return s === "yes" || s === "true" || s === "1" || s === "y" || s === "t";
     };
 
+    // GBP formatter + replace logic (applied to price-flag tooltip text)
+    const gbpFormatter = new Intl.NumberFormat("en-GB", {
+      style: "currency",
+      currency: "GBP",
+      minimumFractionDigits: 0
+    });
+
+    const formatGBPInText = (text) => {
+      if (text == null) return null;
+      const s = String(text);
+      return s.replace(
+        /(?<!\d)(-?\d{1,6})(?![\d.%])/g,
+        (match) => gbpFormatter.format(Number(match))
+      );
+    };
+
     const normalizeTooltip = (val) => {
       if (val == null) return null;
       if (typeof val === "object") {
-        try { return JSON.stringify(val); } catch { return String(val); }
+        try { return formatGBPInText(JSON.stringify(val)); } catch { return formatGBPInText(String(val)); }
       }
-      return String(val);
+      return formatGBPInText(String(val));
     };
 
     const usingForcedX =
@@ -242,6 +258,7 @@ looker.plugins.visualizations.add({
 
         if (changed && !priceChangeByX.has(xLabel)) {
           const tipVal = flagTipF ? (getRendered(row, flagTipF) ?? getRaw(row, flagTipF)) : null;
+          // Apply GBP formatting here
           priceChangeByX.set(xLabel, { changed: true, tip: normalizeTooltip(tipVal) });
         }
       }
@@ -268,7 +285,6 @@ looker.plugins.visualizations.add({
     const deselectSet = this._parseListToSet(config.legend_deselected_values);
 
     function buildSeriesDataWithDrops(categories, byX) {
-      // Step 1: null for no activity, value points for y>0
       const arr = categories.map(cat => {
         const p = byX.get(String(cat));
         if (!p) return null;
@@ -278,7 +294,6 @@ looker.plugins.visualizations.add({
 
       const isActive = (idx) => (arr[idx] && typeof arr[idx].y === "number" && arr[idx].y > 0);
 
-      // Step 2: for each active block, add 0 before/after (only where currently null)
       let i = 0;
       while (i < arr.length) {
         if (!isActive(i)) { i++; continue; }
@@ -293,16 +308,12 @@ looker.plugins.visualizations.add({
         i++;
       }
 
-      // Step 3: if a point is a single-day block (0/value/0), force a marker so it’s visible
       for (let k = 0; k < arr.length; k++) {
         if (!isActive(k)) continue;
         const leftY = (k - 1 >= 0 && arr[k - 1]) ? arr[k - 1].y : null;
         const rightY = (k + 1 < arr.length && arr[k + 1]) ? arr[k + 1].y : null;
 
-        const leftIsZero = (leftY === 0);
-        const rightIsZero = (rightY === 0);
-
-        if (leftIsZero && rightIsZero) {
+        if (leftY === 0 && rightY === 0) {
           arr[k].marker = { enabled: true, radius: 4 };
         }
       }
@@ -534,7 +545,8 @@ looker.plugins.visualizations.add({
           const wrap = (html) => `<div class="sa-tip-inner">${html}</div>`;
 
           if (this.point?.custom?.isPriceFlag) {
-            const tip = this.point.custom.tip;
+            // Safety net: format again at display time
+            const tip = this.point.custom.tip ? formatGBPInText(this.point.custom.tip) : null;
             if (tip && /<[^>]+>/.test(tip)) return wrap(tip);
             if (tip) return wrap(viz._escapeHTML(tip));
             return wrap("<b>Price changed</b>");
