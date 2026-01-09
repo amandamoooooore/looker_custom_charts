@@ -21,6 +21,40 @@ looker.plugins.visualizations.add({
     series_dim:    { label: "Series Dimension", type: "string", display: "select", values: [], section: "Data" },
     value_measure: { label: "Value Measure", type: "string", display: "select", values: [], section: "Data" },
 
+    // --- PRICE FLAGS ---
+    show_price_flags: {
+      label: "Show Price Change Flags",
+      type: "boolean",
+      default: true,
+      section: "Price Flags"
+    },
+    price_change_flag_field: {
+      label: "Price Change Flag (boolean dimension)",
+      type: "string",
+      display: "select",
+      values: [],
+      section: "Price Flags"
+    },
+    price_change_tooltip_field: {
+      label: "Price Change Tooltip (dimension/measure)",
+      type: "string",
+      display: "select",
+      values: [],
+      section: "Price Flags"
+    },
+    show_price_flag_lines: {
+      label: "Show Vertical Flag Lines",
+      type: "boolean",
+      default: true,
+      section: "Price Flags"
+    },
+    price_flag_icon: {
+      label: "Flag Icon Text",
+      type: "string",
+      default: "£",
+      section: "Price Flags"
+    },
+
     // --- X AXIS ---
     x_axis_title:  { label: "X Axis Title", type: "string", default: "", section: "X Axis" },
     reverse_x_axis:{ label: "Reverse", type: "boolean", default: false, section: "X Axis" },
@@ -71,9 +105,9 @@ looker.plugins.visualizations.add({
       css.id = "sa_area_css";
       css.textContent = `
         .highcharts-tooltip.sa-tooltip > span {
-          background: #fff !important; /* white background */
-          border: none !important;     /* remove inner border */
-          box-shadow: none !important; /* remove shadow */
+          background: #fff !important;
+          border: none !important;
+          box-shadow: none !important;
           border-radius: 6px !important;
           padding: 6px 10px !important;
           color: #000 !important;
@@ -113,7 +147,7 @@ looker.plugins.visualizations.add({
   _parseColorMap(str) {
     const map = new Map();
     if (!str) return map;
-    const lines = String(str).split(/\n|,/); // allow newline or comma
+    const lines = String(str).split(/\n|,/);
     lines.forEach(line => {
       const m = line.split(/=|:/);
       if (m.length >= 2) {
@@ -139,6 +173,7 @@ looker.plugins.visualizations.add({
 
   async update(data, element, config, queryResponse) {
     await this._hcReady;
+
     const fields = queryResponse.fields || {};
     const dims = fields.dimension_like || [];
     const meas = fields.measure_like || [];
@@ -146,19 +181,32 @@ looker.plugins.visualizations.add({
     // defaults
     const dimChoices  = dims.map(d => d.name);
     const measChoices = meas.map(m => m.name);
-    if (!config.x_dim && dimChoices[0])                        config.x_dim = dimChoices[0];
-    if (!config.series_dim && (dimChoices[1] || dimChoices[0])) config.series_dim = dimChoices[1] || dimChoices[0];
-    if (!config.value_measure && measChoices[0])               config.value_measure = measChoices[0];
+
+    if (!config.x_dim && dimChoices[0])                         config.x_dim = dimChoices[0];
+    if (!config.series_dim && (dimChoices[1] || dimChoices[0]))  config.series_dim = dimChoices[1] || dimChoices[0];
+    if (!config.value_measure && measChoices[0])                config.value_measure = measChoices[0];
 
     this.options.x_dim.values         = dimChoices;
     this.options.series_dim.values    = dimChoices;
     this.options.value_measure.values = measChoices;
+
+    // price flag dropdown values
+    const allFieldChoices = [...dimChoices, ...measChoices];
+    this.options.price_change_flag_field.values = dimChoices;       // usually boolean dimension
+    this.options.price_change_tooltip_field.values = allFieldChoices; // dimension OR measure
+
     this.trigger("registerOptions", this.options);
 
     const xF = this._resolveField(dims, config.x_dim);
     const sF = this._resolveField(dims, config.series_dim);
     const vF = this._resolveField(meas, config.value_measure);
+
     const tooltipF = config.use_tooltip_field ? (meas[1] || null) : null;
+
+    const flagF = this._resolveField(dims, config.price_change_flag_field);
+    const flagTipF =
+      this._resolveField(dims, config.price_change_tooltip_field) ||
+      this._resolveField(meas, config.price_change_tooltip_field);
 
     const container = document.getElementById("area_chart");
     if (!xF || !sF || !vF) {
@@ -178,6 +226,14 @@ looker.plugins.visualizations.add({
       return Number.isFinite(v) ? v : null;
     };
 
+    const isTruthy = (v) => {
+      if (v === true) return true;
+      if (v === false || v == null) return false;
+      if (typeof v === "number") return v === 1;
+      const s = String(v).trim().toLowerCase();
+      return s === "yes" || s === "true" || s === "1" || s === "y" || s === "t";
+    };
+
     // Build the X categories
     const usingForcedX =
       !!config.force_x_range && Number.isFinite(+config.x_min) &&
@@ -195,6 +251,9 @@ looker.plugins.visualizations.add({
     const categoriesSet = new Set();
     const seriesMap = new Map(); // name -> [{xLabel, y, html, raw}]
 
+    // Price change flags: xLabel -> { changed, tipHtml }
+    const priceChangeByX = new Map();
+
     data.forEach(row => {
       const xLabel = String(getRendered(row, xF));
       const sLabel = String(getRendered(row, sF));
@@ -202,6 +261,16 @@ looker.plugins.visualizations.add({
       if (xLabel == null || sLabel == null || y == null) return;
 
       if (!usingForcedX) categoriesSet.add(xLabel);
+
+      // capture price-change info once per day
+      if (config.show_price_flags && flagF) {
+        const changed = isTruthy(getRaw(row, flagF));
+        if (changed && !priceChangeByX.has(xLabel)) {
+          const tip = flagTipF ? getRendered(row, flagTipF) : null;
+          priceChangeByX.set(xLabel, { changed: true, tipHtml: tip });
+        }
+      }
+
       if (!seriesMap.has(sLabel)) seriesMap.set(sLabel, []);
       seriesMap.get(sLabel).push({
         xLabel,
@@ -224,7 +293,7 @@ looker.plugins.visualizations.add({
     const colorMap = this._parseColorMap(config.series_color_map);
     const deselectSet = this._parseListToSet(config.legend_deselected_values);
 
-    // build series over full category range (fill gaps with 0)
+    // build stacked area series over full category range (fill gaps with 0)
     let series = [];
     for (const [name, points] of seriesMap.entries()) {
       const byX = new Map(points.map(p => [String(p.xLabel), p]));
@@ -235,6 +304,7 @@ looker.plugins.visualizations.add({
           : { y: 0 };
       });
       series.push({
+        type: "area",
         name,
         data: dataArr,
         color: colorMap.get(name),
@@ -247,6 +317,66 @@ looker.plugins.visualizations.add({
       series.sort((a, b) => a.name.localeCompare(b.name));
     }
 
+    // ---- Build totals per category index (top of stack) for flag placement ----
+    const totals = categories.map((_, i) =>
+      series.reduce((sum, s) => sum + (s.data?.[i]?.y || 0), 0)
+    );
+    const maxTotal = Math.max(...totals, 0);
+    const yOffset = maxTotal * 0.03;
+
+    // ---- Flag points + plotLines ----
+    const flagPoints = [];
+    const plotLines = [];
+
+    if (config.show_price_flags && priceChangeByX.size > 0) {
+      categories.forEach((cat, i) => {
+        const info = priceChangeByX.get(String(cat));
+        if (info?.changed) {
+          flagPoints.push({
+            x: i, // category index
+            y: (totals[i] || 0) + yOffset,
+            custom: { isPriceFlag: true, html: info.tipHtml }
+          });
+
+          if (config.show_price_flag_lines) {
+            plotLines.push({
+              value: i,
+              color: "#0b1020",
+              width: 3,
+              zIndex: 6
+            });
+          }
+        }
+      });
+    }
+
+    if (flagPoints.length) {
+      series.push({
+        type: "scatter",
+        name: "Price change",
+        showInLegend: false,
+        data: flagPoints,
+        marker: {
+          radius: 14,
+          fillColor: "#ffffff",
+          lineColor: "#0b1020",
+          lineWidth: 3
+        },
+        dataLabels: {
+          enabled: true,
+          formatter: function () { return (config.price_flag_icon || "£"); },
+          style: {
+            fontSize: "14px",
+            fontWeight: "700",
+            color: "#0b1020",
+            textOutline: "none"
+          }
+        },
+        zIndex: 10,
+        enableMouseTracking: true
+      });
+    }
+
     const viz = this;
 
     Highcharts.chart("area_chart", {
@@ -255,9 +385,7 @@ looker.plugins.visualizations.add({
         spacing: [10,10,10,10],
         height: element.clientHeight || 360
       },
-      credits: {
-        enabled: false
-      },
+      credits: { enabled: false },
       title: { text: null },
       exporting: { enabled: false },
 
@@ -268,12 +396,17 @@ looker.plugins.visualizations.add({
         tickmarkPlacement: "on",
         labels: {
           step: Number.isFinite(+config.x_label_step) && +config.x_label_step > 0 ? +config.x_label_step : 1
-        }
+        },
+        plotLines
       },
 
       yAxis: {
         min: 0,
-        title: { text: (config.y_axis_title && config.y_axis_title.trim()) ? config.y_axis_title.trim() : (vF.label_short || vF.label) }
+        title: {
+          text: (config.y_axis_title && config.y_axis_title.trim())
+            ? config.y_axis_title.trim()
+            : (vF.label_short || vF.label)
+        }
       },
 
       legend: {
@@ -290,6 +423,8 @@ looker.plugins.visualizations.add({
           point: {
             events: {
               click: function () {
+                // only crossfilter when clicking the stacked areas (not the flags)
+                if (this.custom?.isPriceFlag) return;
                 const raw = this.custom?.raw;
                 if (raw == null) return;
                 viz.trigger("filter", [{
@@ -300,27 +435,44 @@ looker.plugins.visualizations.add({
               }
             }
           }
+        },
+        scatter: {
+          cursor: "pointer",
+          states: { hover: { enabled: true } }
         }
       },
-      
+
       tooltip: {
-        useHTML: !!config.use_tooltip_field,
+        useHTML: true,             // needed for flag tooltip HTML too
         className: "sa-tooltip",
         outside: true,
-        backgroundColor: "#fff", // keep white background
-        borderColor: "#ccc",  // remove inner border
+        backgroundColor: "#fff",
+        borderColor: "#ccc",
         borderWidth: 1,
         borderRadius: 6,
-        shadow: false, // remove drop shadow
-        shape: "callout", // keep the pointer
+        shadow: false,
+        shape: "callout",
         padding: 6,
         style: { color: "#000", whiteSpace: "nowrap" },
+
         formatter: function () {
           const wrap = (html) => `<div class="sa-tip-inner">${html}</div>`;
+
+          // Price flag tooltip
+          if (this.point?.custom?.isPriceFlag) {
+            const html = this.point.custom.html;
+            return wrap(html ? html : "<b>Price changed</b>");
+          }
+
+          // Existing HTML tooltip per-point (if enabled)
           if (config.use_tooltip_field && this.point?.custom?.html) {
             return wrap(this.point.custom.html);
           }
-          return wrap(`<b>${this.series.name}</b><br/>${this.x}: <b>${Highcharts.numberFormat(this.y, 4)}</b>`);
+
+          return wrap(
+            `<b>${viz._escapeHTML(this.series.name)}</b><br/>` +
+            `${viz._escapeHTML(this.x)}: <b>${Highcharts.numberFormat(this.y, 4)}</b>`
+          );
         }
       },
 
