@@ -303,7 +303,7 @@ looker.plugins.visualizations.add({
         if (info?.changed) {
           flagPoints.push({
             x: i,
-            y: maxTotal, // no y-axis manipulation; use the data max as the anchor
+            y: maxTotal,
             custom: { isPriceFlag: true, tip: info.tip }
           });
         }
@@ -367,22 +367,18 @@ looker.plugins.visualizations.add({
             const flagSeries = chart.get("price-change-flags");
             if (!flagSeries || !flagSeries.points || !flagSeries.points.length) return;
 
-            const yAxis = chart.yAxis[0];
-
             chart._priceFlagLinesGroup = chart.renderer
               .g("price-flag-lines")
               .attr({ zIndex: 50 })
               .add();
 
-            const yBottomPix = yAxis.toPixels(0, true);
+            const yBottomPix = Math.round(chart.plotTop + chart.plotHeight + 1);
 
             flagSeries.points.forEach((pt) => {
               if (pt.isNull || pt.plotX == null || pt.plotY == null) return;
 
               const xPix = chart.plotLeft + pt.plotX;
               const yCenterPix = chart.plotTop + pt.plotY;
-
-              // End the line just before the circle begins (do not cut into the marker)
               const yEndPix = yCenterPix + markerRadius - 2;
 
               chart.renderer
@@ -390,6 +386,7 @@ looker.plugins.visualizations.add({
                 .attr({
                   stroke: "#0b1020",
                   "stroke-width": 3,
+                  "stroke-linecap": "square",
                   zIndex: 50
                 })
                 .add(chart._priceFlagLinesGroup);
@@ -413,7 +410,7 @@ looker.plugins.visualizations.add({
       },
 
       yAxis: {
-        min: 0, // no max set: no y-axis manipulation
+        min: 0,
         title: {
           text: (config.y_axis_title && config.y_axis_title.trim())
             ? config.y_axis_title.trim()
