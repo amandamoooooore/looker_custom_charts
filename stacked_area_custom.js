@@ -361,6 +361,23 @@ looker.plugins.visualizations.add({
               chart._priceFlagLinesGroup.destroy();
               chart._priceFlagLinesGroup = null;
             }
+            if (chart._customXAxisLine) {
+              chart._customXAxisLine.destroy();
+              chart._customXAxisLine = null;
+            }
+
+            const plotBottomPix = Math.round(chart.plotTop + chart.plotHeight + 1);
+
+            // Draw a black x-axis line on top of everything
+            chart._customXAxisLine = chart.renderer
+              .path(["M", chart.plotLeft, plotBottomPix, "L", chart.plotLeft + chart.plotWidth, plotBottomPix])
+              .attr({
+                stroke: "#000000",
+                "stroke-width": 2,
+                "stroke-linecap": "square",
+                zIndex: 100
+              })
+              .add();
 
             if (!config.show_price_flag_lines) return;
 
@@ -369,25 +386,27 @@ looker.plugins.visualizations.add({
 
             chart._priceFlagLinesGroup = chart.renderer
               .g("price-flag-lines")
-              .attr({ zIndex: 50 })
+              .attr({ zIndex: 90 })
               .add();
-
-            const yBottomPix = Math.round(chart.plotTop + chart.plotHeight + 1);
 
             flagSeries.points.forEach((pt) => {
               if (pt.isNull || pt.plotX == null || pt.plotY == null) return;
 
               const xPix = chart.plotLeft + pt.plotX;
               const yCenterPix = chart.plotTop + pt.plotY;
-              const yEndPix = yCenterPix + markerRadius - 2;
+
+              // End below the circle so the line does not cut into it (creates a small gap).
+              const gapBelowCirclePx = 4;
+              const yEndPixRaw = yCenterPix + markerRadius + gapBelowCirclePx;
+              const yEndPix = Math.min(yEndPixRaw, plotBottomPix);
 
               chart.renderer
-                .path(["M", xPix, yBottomPix, "L", xPix, yEndPix])
+                .path(["M", xPix, plotBottomPix, "L", xPix, yEndPix])
                 .attr({
                   stroke: "#0b1020",
                   "stroke-width": 3,
                   "stroke-linecap": "square",
-                  zIndex: 50
+                  zIndex: 90
                 })
                 .add(chart._priceFlagLinesGroup);
             });
@@ -406,7 +425,8 @@ looker.plugins.visualizations.add({
         tickmarkPlacement: "on",
         labels: {
           step: Number.isFinite(+config.x_label_step) && +config.x_label_step > 0 ? +config.x_label_step : 1
-        }
+        },
+        lineWidth: 0
       },
 
       yAxis: {
