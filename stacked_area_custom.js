@@ -157,7 +157,6 @@ looker.plugins.visualizations.add({
     const vF = this._resolveField(meas, config.value_measure);
     const tooltipF = config.use_tooltip_field ? (meas[1] || null) : null;
 
-    // Column-number (1-based) resolution: dims then meas
     const orderedFields = [...dims, ...meas];
     const fieldByCol = (col1Based) => {
       const idx = Math.floor(Number(col1Based)) - 1;
@@ -212,7 +211,6 @@ looker.plugins.visualizations.add({
       return String(val);
     };
 
-    // Build the X categories
     const usingForcedX =
       !!config.force_x_range && Number.isFinite(+config.x_min) &&
       Number.isFinite(+config.x_max) && Number.isFinite(+config.x_step) &&
@@ -227,7 +225,7 @@ looker.plugins.visualizations.add({
     };
 
     const categoriesSet = new Set();
-    const seriesMap = new Map(); // name -> [{xLabel, y, html, raw}]
+    const seriesMap = new Map();
     const priceChangeByX = new Map();
 
     data.forEach(row => {
@@ -269,21 +267,53 @@ looker.plugins.visualizations.add({
     const colorMap = this._parseColorMap(config.series_color_map);
     const deselectSet = this._parseListToSet(config.legend_deselected_values);
 
-    // Build series over full category range.
-    // IMPORTANT: use null (not 0) for "no activity" so there is no baseline line and no tooltip.
+    function buildSeriesDataWithDrops(categories, byX) {
+      // Step 1: null for no activity, value points for y>0
+      const arr = categories.map(cat => {
+        const p = byX.get(String(cat));
+        if (!p) return null;
+        if (p.y == null || p.y <= 0) return null;
+        return { y: p.y, custom: { html: p.html, raw: p.raw } };
+      });
+
+      const isActive = (idx) => (arr[idx] && typeof arr[idx].y === "number" && arr[idx].y > 0);
+
+      // Step 2: for each active block, add 0 before/after (only where currently null)
+      let i = 0;
+      while (i < arr.length) {
+        if (!isActive(i)) { i++; continue; }
+
+        const start = i;
+        while (i + 1 < arr.length && isActive(i + 1)) i++;
+        const end = i;
+
+        if (start - 1 >= 0 && arr[start - 1] == null) arr[start - 1] = { y: 0, custom: { isDropZero: true } };
+        if (end + 1 < arr.length && arr[end + 1] == null) arr[end + 1] = { y: 0, custom: { isDropZero: true } };
+
+        i++;
+      }
+
+      // Step 3: if a point is a single-day block (0/value/0), force a marker so it’s visible
+      for (let k = 0; k < arr.length; k++) {
+        if (!isActive(k)) continue;
+        const leftY = (k - 1 >= 0 && arr[k - 1]) ? arr[k - 1].y : null;
+        const rightY = (k + 1 < arr.length && arr[k + 1]) ? arr[k + 1].y : null;
+
+        const leftIsZero = (leftY === 0);
+        const rightIsZero = (rightY === 0);
+
+        if (leftIsZero && rightIsZero) {
+          arr[k].marker = { enabled: true, radius: 4 };
+        }
+      }
+
+      return arr;
+    }
+
     let series = [];
     for (const [name, points] of seriesMap.entries()) {
       const byX = new Map(points.map(p => [String(p.xLabel), p]));
-
-      const dataArr = categories.map(cat => {
-        const p = byX.get(String(cat));
-        if (!p) return null;
-
-        // Treat 0 as "no activity" too (removes flat 0 line/tooltips)
-        if (p.y == null || p.y === 0) return null;
-
-        return { y: p.y, custom: { html: p.html, raw: p.raw } };
-      });
+      const dataArr = buildSeriesDataWithDrops(categories, byX);
 
       series.push({
         type: "area",
@@ -291,7 +321,8 @@ looker.plugins.visualizations.add({
         data: dataArr,
         color: colorMap.get(name),
         visible: !deselectSet.has(name),
-        connectNulls: false
+        connectNulls: false,
+        lineWidth: 2
       });
     }
 
@@ -299,10 +330,8 @@ looker.plugins.visualizations.add({
       series.sort((a, b) => a.name.localeCompare(b.name));
     }
 
-    // Compute an anchor value for flag placement (no y-axis manipulation).
-    // Use max stacked total across categories, treating null as 0.
-    const totals = categories.map((_, i) =>
-      series.reduce((sum, s) => sum + (s.data?.[i]?.y || 0), 0)
+    const totals = categories.map((_, idx) =>
+      series.reduce((sum, s) => sum + (s.data?.[idx]?.y || 0), 0)
     );
     const maxTotal = Math.max(...totals, 0);
 
@@ -312,11 +341,11 @@ looker.plugins.visualizations.add({
 
     const flagPoints = [];
     if (config.show_price_flags && priceChangeByX.size > 0) {
-      categories.forEach((cat, i) => {
+      categories.forEach((cat, idx) => {
         const info = priceChangeByX.get(String(cat));
         if (info?.changed) {
           flagPoints.push({
-            x: i,
+            x: idx,
             y: maxTotal || 0,
             custom: { isPriceFlag: true, tip: info.tip }
           });
@@ -382,7 +411,6 @@ looker.plugins.visualizations.add({
 
             const plotBottomPix = Math.round(chart.plotTop + chart.plotHeight + 1);
 
-            // Draw a black x-axis line on top of everything
             chart._customXAxisLine = chart.renderer
               .path(["M", chart.plotLeft, plotBottomPix, "L", chart.plotLeft + chart.plotWidth, plotBottomPix])
               .attr({
@@ -409,7 +437,6 @@ looker.plugins.visualizations.add({
               const xPix = chart.plotLeft + pt.plotX;
               const yCenterPix = chart.plotTop + pt.plotY;
 
-              // End at the circle's outer edge (no visible gap, no cutting into fill)
               const yEndPix = Math.min(
                 yCenterPix + markerRadius + (circleStrokeWidth / 2),
                 plotBottomPix
@@ -467,6 +494,7 @@ looker.plugins.visualizations.add({
             events: {
               click: function () {
                 if (this.custom?.isPriceFlag) return;
+                if (this.y == null || this.y === 0) return;
                 const raw = this.custom?.raw;
                 if (raw == null) return;
                 viz.trigger("filter", [{
@@ -498,7 +526,7 @@ looker.plugins.visualizations.add({
         style: { color: "#000", whiteSpace: "nowrap" },
 
         formatter: function () {
-          // Suppress tooltips for null/zero points (prevents the 0.0000 tooltip issue)
+          if (this.point?.custom?.isDropZero) return false;
           if (this.point && (this.point.y == null || this.point.y === 0) && !this.point.custom?.isPriceFlag) {
             return false;
           }
