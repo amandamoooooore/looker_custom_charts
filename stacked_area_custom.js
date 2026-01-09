@@ -62,7 +62,6 @@ looker.plugins.visualizations.add({
   create(element) {
     element.innerHTML = "<div id='area_chart' style='width:100%;height:100%;'></div>";
 
-    // CSS for opaque HTML tooltips that auto-size
     if (!document.getElementById("sa_area_css")) {
       const css = document.createElement("style");
       css.id = "sa_area_css";
@@ -158,7 +157,6 @@ looker.plugins.visualizations.add({
     const vF = this._resolveField(meas, config.value_measure);
     const tooltipF = config.use_tooltip_field ? (meas[1] || null) : null;
 
-    // Column-number (1-based) resolution: dims then meas
     const orderedFields = [...dims, ...meas];
     const fieldByCol = (col1Based) => {
       const idx = Math.floor(Number(col1Based)) - 1;
@@ -179,7 +177,6 @@ looker.plugins.visualizations.add({
       return;
     }
 
-    // helpers
     const getCell = (row, f) => (row && f && row[f.name]) ? row[f.name] : null;
     const getRendered = (row, f) => {
       const c = getCell(row, f);
@@ -214,7 +211,6 @@ looker.plugins.visualizations.add({
       return String(val);
     };
 
-    // Build the X categories
     const usingForcedX =
       !!config.force_x_range && Number.isFinite(+config.x_min) &&
       Number.isFinite(+config.x_max) && Number.isFinite(+config.x_step) &&
@@ -230,7 +226,7 @@ looker.plugins.visualizations.add({
 
     const categoriesSet = new Set();
     const seriesMap = new Map();
-    const priceChangeByX = new Map(); // xLabel -> { changed, tip }
+    const priceChangeByX = new Map();
 
     data.forEach(row => {
       const xLabel = String(getRendered(row, xF));
@@ -271,7 +267,6 @@ looker.plugins.visualizations.add({
     const colorMap = this._parseColorMap(config.series_color_map);
     const deselectSet = this._parseListToSet(config.legend_deselected_values);
 
-    // build stacked area series
     let series = [];
     for (const [name, points] of seriesMap.entries()) {
       const byX = new Map(points.map(p => [String(p.xLabel), p]));
@@ -294,21 +289,13 @@ looker.plugins.visualizations.add({
       series.sort((a, b) => a.name.localeCompare(b.name));
     }
 
-    // totals & axis max
     const totals = categories.map((_, i) =>
       series.reduce((sum, s) => sum + (s.data?.[i]?.y || 0), 0)
     );
     const maxTotal = Math.max(...totals, 0);
 
-    // ✅ MUCH smaller headroom now (3%)
-    const yAxisMax = maxTotal > 0 ? (maxTotal * 1.03) : 1;
-
-    // ✅ keep flags near the top of the axis without forcing huge scale changes
-    const flagY = yAxisMax * 0.985;
-
     const markerRadius = 18;
 
-    // build flag points
     const flagPoints = [];
     if (config.show_price_flags && priceChangeByX.size > 0) {
       categories.forEach((cat, i) => {
@@ -316,14 +303,13 @@ looker.plugins.visualizations.add({
         if (info?.changed) {
           flagPoints.push({
             x: i,
-            y: flagY,
+            y: maxTotal, // no y-axis manipulation; use the data max as the anchor
             custom: { isPriceFlag: true, tip: info.tip }
           });
         }
       });
     }
 
-    // add flag scatter series with ID
     if (flagPoints.length) {
       series.push({
         id: "price-change-flags",
@@ -331,7 +317,6 @@ looker.plugins.visualizations.add({
         name: "Price change",
         showInLegend: false,
         data: flagPoints,
-
         marker: {
           symbol: "circle",
           radius: markerRadius,
@@ -339,7 +324,6 @@ looker.plugins.visualizations.add({
           lineColor: "#0b1020",
           lineWidth: 3
         },
-
         dataLabels: {
           enabled: true,
           allowOverlap: true,
@@ -355,7 +339,6 @@ looker.plugins.visualizations.add({
             textOutline: "none"
           }
         },
-
         zIndex: 10,
         enableMouseTracking: true,
         clip: false
@@ -370,8 +353,6 @@ looker.plugins.visualizations.add({
         spacing: [10,10,10,10],
         height: element.clientHeight || 360,
 
-        // Draw custom vertical lines aligned to the actual rendered X of each flag point.
-        // ✅ lines meet x-axis; ✅ lines draw above gridlines
         events: {
           render: function () {
             const chart = this;
@@ -388,25 +369,21 @@ looker.plugins.visualizations.add({
 
             const yAxis = chart.yAxis[0];
 
-            // draw in a group with high zIndex so it sits above gridlines/areas
             chart._priceFlagLinesGroup = chart.renderer
               .g("price-flag-lines")
               .attr({ zIndex: 50 })
               .add();
 
-            const yTopPix = yAxis.toPixels(flagY, true);
-
-            // ✅ bottom meets the x-axis (y=0 line)
             const yBottomPix = yAxis.toPixels(0, true);
 
-            // stop line just below the circle so it doesn't pass through
-            const gapPx = markerRadius + 6;
-            const yEndPix = yTopPix + gapPx;
-
             flagSeries.points.forEach((pt) => {
-              if (pt.isNull || pt.plotX == null) return;
+              if (pt.isNull || pt.plotX == null || pt.plotY == null) return;
 
               const xPix = chart.plotLeft + pt.plotX;
+              const yCenterPix = chart.plotTop + pt.plotY;
+
+              // End the line just before the circle begins (do not cut into the marker)
+              const yEndPix = yCenterPix + markerRadius - 2;
 
               chart.renderer
                 .path(["M", xPix, yBottomPix, "L", xPix, yEndPix])
@@ -436,8 +413,7 @@ looker.plugins.visualizations.add({
       },
 
       yAxis: {
-        min: 0,
-        max: yAxisMax,
+        min: 0, // no max set: no y-axis manipulation
         title: {
           text: (config.y_axis_title && config.y_axis_title.trim())
             ? config.y_axis_title.trim()
