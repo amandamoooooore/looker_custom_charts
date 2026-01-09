@@ -203,19 +203,24 @@ looker.plugins.visualizations.add({
       return s === "yes" || s === "true" || s === "1" || s === "y" || s === "t";
     };
 
-    // GBP formatter + replace logic (applied to price-flag tooltip text)
+    // GBP formatter + replace logic (applied to price-flag tooltip text only)
     const gbpFormatter = new Intl.NumberFormat("en-GB", {
       style: "currency",
       currency: "GBP",
       minimumFractionDigits: 0
     });
 
+    // Only format numbers NOT already prefixed with £, and support comma thousands.
     const formatGBPInText = (text) => {
       if (text == null) return null;
-      const s = String(text);
-      return s.replace(
-        /(?<!\d)(-?\d{1,6})(?![\d.%])/g,
-        (match) => gbpFormatter.format(Number(match))
+
+      return String(text).replace(
+        /(^|[^£\d])(-?\d{1,3}(?:,\d{3})*)(?![\d.%])/g,
+        (match, prefix, number) => {
+          const numeric = Number(String(number).replace(/,/g, ""));
+          if (!Number.isFinite(numeric)) return match;
+          return `${prefix}${gbpFormatter.format(numeric)}`;
+        }
       );
     };
 
@@ -258,7 +263,6 @@ looker.plugins.visualizations.add({
 
         if (changed && !priceChangeByX.has(xLabel)) {
           const tipVal = flagTipF ? (getRendered(row, flagTipF) ?? getRaw(row, flagTipF)) : null;
-          // Apply GBP formatting here
           priceChangeByX.set(xLabel, { changed: true, tip: normalizeTooltip(tipVal) });
         }
       }
@@ -545,7 +549,6 @@ looker.plugins.visualizations.add({
           const wrap = (html) => `<div class="sa-tip-inner">${html}</div>`;
 
           if (this.point?.custom?.isPriceFlag) {
-            // Safety net: format again at display time
             const tip = this.point.custom.tip ? formatGBPInText(this.point.custom.tip) : null;
             if (tip && /<[^>]+>/.test(tip)) return wrap(tip);
             if (tip) return wrap(viz._escapeHTML(tip));
