@@ -28,6 +28,13 @@ looker.plugins.visualizations.add({
     show_price_flag_lines: { label: "Show Vertical Flag Lines", type: "boolean", default: true, section: "Price Flags" },
     price_flag_icon: { label: "Flag Icon Text", type: "string", default: "£", section: "Price Flags" },
 
+    // --- PACKAGE FLAGS (by column number) ---
+    show_package_flags: { label: "Show Package Flags", type: "boolean", default: false, section: "Package Flags" },
+    package_flag_col: { label: "Package Flag Column (1-based)", type: "number", default: 5, section: "Package Flags" },
+    package_tooltip_col: { label: "Package Tooltip Column (1-based)", type: "number", default: 11, section: "Package Flags" },
+    show_package_flag_lines: { label: "Show Vertical Flag Lines", type: "boolean", default: true, section: "Package Flags" },
+    package_flag_icon: { label: "Flag Icon Text", type: "string", default: "P", section: "Package Flags" },
+
     // --- X AXIS ---
     x_axis_title:  { label: "X Axis Title", type: "string", default: "", section: "X Axis" },
     reverse_x_axis:{ label: "Reverse", type: "boolean", default: false, section: "X Axis" },
@@ -164,8 +171,11 @@ looker.plugins.visualizations.add({
       return orderedFields[idx];
     };
 
-    const flagF = fieldByCol(config.price_change_flag_col);
-    const flagTipF = fieldByCol(config.price_change_tooltip_col);
+    const priceFlagF = fieldByCol(config.price_change_flag_col);
+    const priceFlagTipF = fieldByCol(config.price_change_tooltip_col);
+
+    const packageFlagF = fieldByCol(config.package_flag_col);
+    const packageFlagTipF = fieldByCol(config.package_tooltip_col);
 
     const container = document.getElementById("area_chart");
     if (!xF || !sF || !vF) {
@@ -203,7 +213,7 @@ looker.plugins.visualizations.add({
       return s === "yes" || s === "true" || s === "1" || s === "y" || s === "t";
     };
 
-    // GBP formatter + replace logic (applied to price-flag tooltip text only)
+    // GBP formatter + replace logic (applied to PRICE flag tooltip text only)
     const gbpFormatter = new Intl.NumberFormat("en-GB", {
       style: "currency",
       currency: "GBP",
@@ -212,7 +222,7 @@ looker.plugins.visualizations.add({
 
     const formatGBPInText = (text) => {
       if (text == null) return null;
-    
+
       return String(text).replace(
         /(?<![£\d,])(-?\d{1,3}(?:,\d{3})*|\d+)(?![\d.%])/g,
         (match) => {
@@ -223,12 +233,17 @@ looker.plugins.visualizations.add({
       );
     };
 
-    const normalizeTooltip = (val) => {
+    const normalizeTooltipGeneric = (val) => {
       if (val == null) return null;
       if (typeof val === "object") {
-        try { return formatGBPInText(JSON.stringify(val)); } catch { return formatGBPInText(String(val)); }
+        try { return JSON.stringify(val); } catch { return String(val); }
       }
-      return formatGBPInText(String(val));
+      return String(val);
+    };
+
+    const normalizeTooltipPrice = (val) => {
+      const s = normalizeTooltipGeneric(val);
+      return s == null ? null : formatGBPInText(s);
     };
 
     const usingForcedX =
@@ -246,7 +261,9 @@ looker.plugins.visualizations.add({
 
     const categoriesSet = new Set();
     const seriesMap = new Map();
+
     const priceChangeByX = new Map();
+    const packageChangeByX = new Map();
 
     data.forEach(row => {
       const xLabel = String(getRendered(row, xF));
@@ -256,13 +273,25 @@ looker.plugins.visualizations.add({
 
       if (!usingForcedX) categoriesSet.add(xLabel);
 
-      if (config.show_price_flags && flagF) {
-        const flagVal = getRaw(row, flagF) ?? getRendered(row, flagF);
+      // Price flags
+      if (config.show_price_flags && priceFlagF) {
+        const flagVal = getRaw(row, priceFlagF) ?? getRendered(row, priceFlagF);
         const changed = isTruthy(flagVal);
 
         if (changed && !priceChangeByX.has(xLabel)) {
-          const tipVal = flagTipF ? (getRendered(row, flagTipF) ?? getRaw(row, flagTipF)) : null;
-          priceChangeByX.set(xLabel, { changed: true, tip: normalizeTooltip(tipVal) });
+          const tipVal = priceFlagTipF ? (getRendered(row, priceFlagTipF) ?? getRaw(row, priceFlagTipF)) : null;
+          priceChangeByX.set(xLabel, { changed: true, tip: normalizeTooltipPrice(tipVal) });
+        }
+      }
+
+      // Package flags
+      if (config.show_package_flags && packageFlagF) {
+        const flagVal = getRaw(row, packageFlagF) ?? getRendered(row, packageFlagF);
+        const changed = isTruthy(flagVal);
+
+        if (changed && !packageChangeByX.has(xLabel)) {
+          const tipVal = packageFlagTipF ? (getRendered(row, packageFlagTipF) ?? getRaw(row, packageFlagTipF)) : null;
+          packageChangeByX.set(xLabel, { changed: true, tip: normalizeTooltipGeneric(tipVal) });
         }
       }
 
@@ -315,7 +344,6 @@ looker.plugins.visualizations.add({
         if (!isActive(k)) continue;
         const leftY = (k - 1 >= 0 && arr[k - 1]) ? arr[k - 1].y : null;
         const rightY = (k + 1 < arr.length && arr[k + 1]) ? arr[k + 1].y : null;
-        // update
         if (leftY === 0 && rightY === 0 && !!config.show_markers) {
           arr[k].marker = { enabled: true, radius: 4 };
         }
@@ -353,12 +381,13 @@ looker.plugins.visualizations.add({
     const circleStrokeWidth = 3;
     const lineStrokeWidth = 3;
 
-    const flagPoints = [];
+    // Price flag points
+    const priceFlagPoints = [];
     if (config.show_price_flags && priceChangeByX.size > 0) {
       categories.forEach((cat, idx) => {
         const info = priceChangeByX.get(String(cat));
         if (info?.changed) {
-          flagPoints.push({
+          priceFlagPoints.push({
             x: idx,
             y: maxTotal || 0,
             custom: { isPriceFlag: true, tip: info.tip }
@@ -367,13 +396,13 @@ looker.plugins.visualizations.add({
       });
     }
 
-    if (flagPoints.length) {
+    if (priceFlagPoints.length) {
       series.push({
         id: "price-change-flags",
         type: "scatter",
         name: "Price change",
         showInLegend: false,
-        data: flagPoints,
+        data: priceFlagPoints,
         marker: {
           symbol: "circle",
           radius: markerRadius,
@@ -402,6 +431,56 @@ looker.plugins.visualizations.add({
       });
     }
 
+    // Package flag points
+    const packageFlagPoints = [];
+    if (config.show_package_flags && packageChangeByX.size > 0) {
+      categories.forEach((cat, idx) => {
+        const info = packageChangeByX.get(String(cat));
+        if (info?.changed) {
+          packageFlagPoints.push({
+            x: idx,
+            y: maxTotal || 0,
+            custom: { isPackageFlag: true, tip: info.tip }
+          });
+        }
+      });
+    }
+
+    if (packageFlagPoints.length) {
+      series.push({
+        id: "package-flags",
+        type: "scatter",
+        name: "Package",
+        showInLegend: false,
+        data: packageFlagPoints,
+        marker: {
+          symbol: "circle",
+          radius: markerRadius,
+          fillColor: "rgba(255,255,255,1)",
+          lineColor: "#0b1020",
+          lineWidth: circleStrokeWidth
+        },
+        dataLabels: {
+          enabled: true,
+          allowOverlap: true,
+          crop: false,
+          overflow: "allow",
+          align: "center",
+          verticalAlign: "middle",
+          formatter: function () { return (config.package_flag_icon || "P"); },
+          style: {
+            fontSize: "18px",
+            fontWeight: "800",
+            color: "#0b1020",
+            textOutline: "none"
+          }
+        },
+        zIndex: 10,
+        enableMouseTracking: true,
+        clip: false
+      });
+    }
+
     const viz = this;
 
     Highcharts.chart("area_chart", {
@@ -414,9 +493,14 @@ looker.plugins.visualizations.add({
           render: function () {
             const chart = this;
 
+            // Clear previous custom elements
             if (chart._priceFlagLinesGroup) {
               chart._priceFlagLinesGroup.destroy();
               chart._priceFlagLinesGroup = null;
+            }
+            if (chart._packageFlagLinesGroup) {
+              chart._packageFlagLinesGroup.destroy();
+              chart._packageFlagLinesGroup = null;
             }
             if (chart._customXAxisLine) {
               chart._customXAxisLine.destroy();
@@ -425,6 +509,7 @@ looker.plugins.visualizations.add({
 
             const plotBottomPix = Math.round(chart.plotTop + chart.plotHeight + 1);
 
+            // Black x-axis line always on top
             chart._customXAxisLine = chart.renderer
               .path(["M", chart.plotLeft, plotBottomPix, "L", chart.plotLeft + chart.plotWidth, plotBottomPix])
               .attr({
@@ -435,37 +520,49 @@ looker.plugins.visualizations.add({
               })
               .add();
 
-            if (!config.show_price_flag_lines) return;
+            const drawFlagLines = (seriesId, groupKey) => {
+              const s = chart.get(seriesId);
+              if (!s || !s.points || !s.points.length) return;
 
-            const flagSeries = chart.get("price-change-flags");
-            if (!flagSeries || !flagSeries.points || !flagSeries.points.length) return;
+              const g = chart.renderer
+                .g(groupKey)
+                .attr({ zIndex: 90 })
+                .add();
 
-            chart._priceFlagLinesGroup = chart.renderer
-              .g("price-flag-lines")
-              .attr({ zIndex: 90 })
-              .add();
+              chart[groupKey] = g;
 
-            flagSeries.points.forEach((pt) => {
-              if (pt.isNull || pt.plotX == null || pt.plotY == null) return;
+              s.points.forEach((pt) => {
+                if (pt.isNull || pt.plotX == null || pt.plotY == null) return;
 
-              const xPix = chart.plotLeft + pt.plotX;
-              const yCenterPix = chart.plotTop + pt.plotY;
+                const xPix = chart.plotLeft + pt.plotX;
+                const yCenterPix = chart.plotTop + pt.plotY;
 
-              const yEndPix = Math.min(
-                yCenterPix + markerRadius + (circleStrokeWidth / 2),
-                plotBottomPix
-              );
+                const yEndPix = Math.min(
+                  yCenterPix + markerRadius + (circleStrokeWidth / 2),
+                  plotBottomPix
+                );
 
-              chart.renderer
-                .path(["M", xPix, plotBottomPix, "L", xPix, yEndPix])
-                .attr({
-                  stroke: "#0b1020",
-                  "stroke-width": lineStrokeWidth,
-                  "stroke-linecap": "square",
-                  zIndex: 90
-                })
-                .add(chart._priceFlagLinesGroup);
-            });
+                chart.renderer
+                  .path(["M", xPix, plotBottomPix, "L", xPix, yEndPix])
+                  .attr({
+                    stroke: "#0b1020",
+                    "stroke-width": lineStrokeWidth,
+                    "stroke-linecap": "square",
+                    zIndex: 90
+                  })
+                  .add(g);
+              });
+            };
+
+            // Price lines
+            if (!!config.show_price_flag_lines) {
+              drawFlagLines("price-change-flags", "_priceFlagLinesGroup");
+            }
+
+            // Package lines
+            if (!!config.show_package_flag_lines) {
+              drawFlagLines("package-flags", "_packageFlagLinesGroup");
+            }
           }
         }
       },
@@ -508,6 +605,7 @@ looker.plugins.visualizations.add({
             events: {
               click: function () {
                 if (this.custom?.isPriceFlag) return;
+                if (this.custom?.isPackageFlag) return;
                 if (this.y == null || this.y === 0) return;
                 const raw = this.custom?.raw;
                 if (raw == null) return;
@@ -541,12 +639,13 @@ looker.plugins.visualizations.add({
 
         formatter: function () {
           if (this.point?.custom?.isDropZero) return false;
-          if (this.point && (this.point.y == null || this.point.y === 0) && !this.point.custom?.isPriceFlag) {
+          if (this.point && (this.point.y == null || this.point.y === 0) && !this.point.custom?.isPriceFlag && !this.point.custom?.isPackageFlag) {
             return false;
           }
 
           const wrap = (html) => `<div class="sa-tip-inner">${html}</div>`;
 
+          // PRICE FLAG tooltip
           if (this.point?.custom?.isPriceFlag) {
             const tip = this.point.custom.tip ? formatGBPInText(this.point.custom.tip) : null;
             if (tip && /<[^>]+>/.test(tip)) return wrap(tip);
@@ -554,6 +653,15 @@ looker.plugins.visualizations.add({
             return wrap("<b>Price changed</b>");
           }
 
+          // PACKAGE FLAG tooltip
+          if (this.point?.custom?.isPackageFlag) {
+            const tip = this.point.custom.tip ? String(this.point.custom.tip) : null;
+            if (tip && /<[^>]+>/.test(tip)) return wrap(tip);
+            if (tip) return wrap(viz._escapeHTML(tip));
+            return wrap("<b>Package changed</b>");
+          }
+
+          // Normal series tooltip
           if (config.use_tooltip_field && this.point?.custom?.html) {
             return wrap(this.point.custom.html);
           }
