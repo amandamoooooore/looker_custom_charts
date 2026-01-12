@@ -1,4 +1,4 @@
-// --- Load script once Px ---
+// --- Load script once px2 ---
 function loadScriptOnce(src) {
   return new Promise((resolve, reject) => {
     if (document.querySelector(`script[src="${src}"]`)) return resolve();
@@ -377,9 +377,8 @@ looker.plugins.visualizations.add({
     const circleStrokeWidth = 3;
     const lineStrokeWidth = 3;
 
-    // Controls how much LOWER package flags sit (relative to the top flag height).
-    // 0.88 means: package flags sit at 88% of the price flag height.
-    const PACKAGE_FLAG_Y_PCT = 0.88;
+    // Package flags sit lower (further down) than price flags
+    const PACKAGE_FLAG_Y_PCT = 0.75;
     const packageFlagY = (maxTotal > 0) ? (maxTotal * PACKAGE_FLAG_Y_PCT) : 0;
 
     const priceFlagPoints = [];
@@ -425,7 +424,7 @@ looker.plugins.visualizations.add({
             textOutline: "none"
           }
         },
-        zIndex: 10,
+        zIndex: 200,
         enableMouseTracking: true,
         clip: false
       });
@@ -474,7 +473,7 @@ looker.plugins.visualizations.add({
             textOutline: "none"
           }
         },
-        zIndex: 9,
+        zIndex: 190,
         enableMouseTracking: true,
         clip: false
       });
@@ -513,7 +512,7 @@ looker.plugins.visualizations.add({
                 stroke: "#000000",
                 "stroke-width": 2,
                 "stroke-linecap": "square",
-                zIndex: 100
+                zIndex: 300
               })
               .add();
 
@@ -523,7 +522,7 @@ looker.plugins.visualizations.add({
 
               const g = chart.renderer
                 .g(groupKey)
-                .attr({ zIndex: 90 })
+                .attr({ zIndex: 40 })
                 .add();
 
               chart[groupKey] = g;
@@ -545,7 +544,7 @@ looker.plugins.visualizations.add({
                     stroke: "#0b1020",
                     "stroke-width": lineStrokeWidth,
                     "stroke-linecap": "square",
-                    zIndex: 90
+                    zIndex: 40
                   })
                   .add(g);
               });
