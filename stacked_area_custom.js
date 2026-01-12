@@ -1,4 +1,4 @@
-// --- Load script once px2---
+// --- Load script once px4---
 function loadScriptOnce(src) {
   return new Promise((resolve, reject) => {
     if (document.querySelector(`script[src="${src}"]`)) return resolve();
@@ -377,7 +377,6 @@ looker.plugins.visualizations.add({
     const circleStrokeWidth = 3;
     const lineStrokeWidth = 3;
 
-    // Package flags sit lower (further down) than price flags
     const PACKAGE_FLAG_Y_PCT = 0.75;
     const packageFlagY = (maxTotal > 0) ? (maxTotal * PACKAGE_FLAG_Y_PCT) : 0;
 
@@ -499,6 +498,10 @@ looker.plugins.visualizations.add({
               chart._packageFlagLinesGroup.destroy();
               chart._packageFlagLinesGroup = null;
             }
+            if (chart._packageFlagMaskGroup) {
+              chart._packageFlagMaskGroup.destroy();
+              chart._packageFlagMaskGroup = null;
+            }
             if (chart._customXAxisLine) {
               chart._customXAxisLine.destroy();
               chart._customXAxisLine = null;
@@ -512,7 +515,7 @@ looker.plugins.visualizations.add({
                 stroke: "#000000",
                 "stroke-width": 2,
                 "stroke-linecap": "square",
-                zIndex: 300
+                zIndex: 100
               })
               .add();
 
@@ -522,7 +525,7 @@ looker.plugins.visualizations.add({
 
               const g = chart.renderer
                 .g(groupKey)
-                .attr({ zIndex: 40 })
+                .attr({ zIndex: 90 })
                 .add();
 
               chart[groupKey] = g;
@@ -544,7 +547,7 @@ looker.plugins.visualizations.add({
                     stroke: "#0b1020",
                     "stroke-width": lineStrokeWidth,
                     "stroke-linecap": "square",
-                    zIndex: 40
+                    zIndex: 90
                   })
                   .add(g);
               });
@@ -552,6 +555,36 @@ looker.plugins.visualizations.add({
 
             if (!!config.show_price_flag_lines) drawFlagLines("price-change-flags", "_priceFlagLinesGroup");
             if (!!config.show_package_flag_lines) drawFlagLines("package-flags", "_packageFlagLinesGroup");
+
+            // Package flag mask: opaque white circle drawn above lines so nothing shows through the package badge
+            if (config.show_package_flags) {
+              const pkgSeries = chart.get("package-flags");
+              if (pkgSeries && pkgSeries.points && pkgSeries.points.length) {
+                chart._packageFlagMaskGroup = chart.renderer
+                  .g("package-flag-masks")
+                  .attr({ zIndex: 185 })
+                  .add();
+
+                pkgSeries.points.forEach((pt) => {
+                  if (pt.isNull || pt.plotX == null || pt.plotY == null) return;
+
+                  const xPix = chart.plotLeft + pt.plotX;
+                  const yPix = chart.plotTop + pt.plotY;
+
+                  // Slightly larger than inner area so it fully covers any line underneath
+                  const maskRadius = markerRadius - (circleStrokeWidth / 2) + 2;
+
+                  chart.renderer
+                    .circle(xPix, yPix, maskRadius)
+                    .attr({
+                      fill: "#ffffff",
+                      stroke: "none",
+                      zIndex: 185
+                    })
+                    .add(chart._packageFlagMaskGroup);
+                });
+              }
+            }
           }
         }
       },
