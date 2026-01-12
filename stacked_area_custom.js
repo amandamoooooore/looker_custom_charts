@@ -1,4 +1,4 @@
-// --- Load script once px6---
+// --- Load script once px7---
 function loadScriptOnce(src) {
   return new Promise((resolve, reject) => {
     if (document.querySelector(`script[src="${src}"]`)) return resolve();
@@ -544,35 +544,37 @@ looker.plugins.visualizations.add({
             if (!!config.show_price_flag_lines) drawFlagLines("price-change-flags", "_priceFlagLinesGroup");
             if (!!config.show_package_flag_lines) drawFlagLines("package-flags", "_packageFlagLinesGroup");
 
-            // MASK: ABOVE LINES (zIndex 95), BELOW PACKAGE MARKER/TEXT (DOM inserted before pkg group)
+            // Package mask: must be ABOVE vertical lines, but BELOW the package marker + label text
             const pkgSeries = chart.get("package-flags");
-            if (config.show_package_flags && pkgSeries && pkgSeries.points && pkgSeries.points.length && pkgSeries.group) {
+            if (config.show_package_flags && pkgSeries && pkgSeries.points && pkgSeries.points.length) {
               const maskRadius = markerRadius - (circleStrokeWidth / 2) - 0.5;
-
+            
               chart._packageFlagMaskGroup = chart.renderer
                 .g("package-flag-masks")
-                .attr({ zIndex: 95 })
+                .attr({ zIndex: 150 })
                 .add();
-
+            
               pkgSeries.points.forEach((pt) => {
                 if (pt.isNull || pt.plotX == null || pt.plotY == null) return;
-
+            
                 const xPix = chart.plotLeft + pt.plotX;
                 const yPix = chart.plotTop + pt.plotY;
-
+            
                 chart.renderer
                   .circle(xPix, yPix, maskRadius)
                   .attr({ fill: "#ffffff", stroke: "none" })
                   .add(chart._packageFlagMaskGroup);
               });
-
-              const masksEl = chart._packageFlagMaskGroup.element;
-              const pkgEl = pkgSeries.group.element;
-              if (masksEl && pkgEl && pkgEl.parentNode) {
-                // Put masks immediately BEFORE the package series group
-                // so package marker + dataLabel ("Px") always draw on top.
-                pkgEl.parentNode.insertBefore(masksEl, pkgEl);
-              }
+            
+              // Force ordering:
+              // 1) mask above all lines
+              chart._packageFlagMaskGroup.toFront();
+            
+              // 2) package marker above mask
+              if (pkgSeries.group) pkgSeries.group.toFront();
+            
+              // 3) package label text above everything
+              if (pkgSeries.dataLabelsGroup) pkgSeries.dataLabelsGroup.toFront();
             }
           }
         }
