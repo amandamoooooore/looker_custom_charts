@@ -1,4 +1,4 @@
-// --- Load script once px4---
+// --- Load script once px5---
 function loadScriptOnce(src) {
   return new Promise((resolve, reject) => {
     if (document.querySelector(`script[src="${src}"]`)) return resolve();
@@ -556,33 +556,38 @@ looker.plugins.visualizations.add({
             if (!!config.show_price_flag_lines) drawFlagLines("price-change-flags", "_priceFlagLinesGroup");
             if (!!config.show_package_flag_lines) drawFlagLines("package-flags", "_packageFlagLinesGroup");
 
-            // Package flag mask: opaque white circle drawn above lines so nothing shows through the package badge
-            if (config.show_package_flags) {
-              const pkgSeries = chart.get("package-flags");
-              if (pkgSeries && pkgSeries.points && pkgSeries.points.length) {
-                chart._packageFlagMaskGroup = chart.renderer
-                  .g("package-flag-masks")
-                  .attr({ zIndex: 185 })
-                  .add();
+            // Package mask fix:
+            // - Smaller radius so it never overlaps the marker stroke (keeps stroke thickness identical)
+            // - Inserted under the package series group so it never covers the Px text
+            const pkgSeries = chart.get("package-flags");
+            if (config.show_package_flags && pkgSeries && pkgSeries.group && pkgSeries.points && pkgSeries.points.length) {
+              const maskRadius = Math.max(0, markerRadius - circleStrokeWidth - 1);
 
-                pkgSeries.points.forEach((pt) => {
-                  if (pt.isNull || pt.plotX == null || pt.plotY == null) return;
+              chart._packageFlagMaskGroup = chart.renderer
+                .g("package-flag-masks")
+                .attr({ zIndex: 0 })
+                .add(chart.seriesGroup);
 
-                  const xPix = chart.plotLeft + pt.plotX;
-                  const yPix = chart.plotTop + pt.plotY;
+              pkgSeries.points.forEach((pt) => {
+                if (pt.isNull || pt.plotX == null || pt.plotY == null) return;
 
-                  // Slightly larger than inner area so it fully covers any line underneath
-                  const maskRadius = markerRadius - (circleStrokeWidth / 2) + 2;
+                const xPix = chart.plotLeft + pt.plotX;
+                const yPix = chart.plotTop + pt.plotY;
 
-                  chart.renderer
-                    .circle(xPix, yPix, maskRadius)
-                    .attr({
-                      fill: "#ffffff",
-                      stroke: "none",
-                      zIndex: 185
-                    })
-                    .add(chart._packageFlagMaskGroup);
-                });
+                chart.renderer
+                  .circle(xPix, yPix, maskRadius)
+                  .attr({
+                    fill: "#ffffff",
+                    stroke: "none"
+                  })
+                  .add(chart._packageFlagMaskGroup);
+              });
+
+              // Ensure masks sit directly underneath the package series group (so they can't cover labels)
+              const masksEl = chart._packageFlagMaskGroup && chart._packageFlagMaskGroup.element;
+              const pkgEl = pkgSeries.group && pkgSeries.group.element;
+              if (masksEl && pkgEl && pkgEl.parentNode) {
+                pkgEl.parentNode.insertBefore(masksEl, pkgEl);
               }
             }
           }
