@@ -1,4 +1,4 @@
-// --- Load script once ---
+// --- Load script once Px ---
 function loadScriptOnce(src) {
   return new Promise((resolve, reject) => {
     if (document.querySelector(`script[src="${src}"]`)) return resolve();
