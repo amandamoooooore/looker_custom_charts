@@ -1,4 +1,4 @@
-// --- Load script once px2 ---
+// --- Load script once px3---
 function loadScriptOnce(src) {
   return new Promise((resolve, reject) => {
     if (document.querySelector(`script[src="${src}"]`)) return resolve();
@@ -377,7 +377,6 @@ looker.plugins.visualizations.add({
     const circleStrokeWidth = 3;
     const lineStrokeWidth = 3;
 
-    // Package flags sit lower (further down) than price flags
     const PACKAGE_FLAG_Y_PCT = 0.75;
     const packageFlagY = (maxTotal > 0) ? (maxTotal * PACKAGE_FLAG_Y_PCT) : 0;
 
@@ -522,7 +521,7 @@ looker.plugins.visualizations.add({
 
               const g = chart.renderer
                 .g(groupKey)
-                .attr({ zIndex: 40 })
+                .attr({ zIndex: 180 })
                 .add();
 
               chart[groupKey] = g;
@@ -533,8 +532,9 @@ looker.plugins.visualizations.add({
                 const xPix = chart.plotLeft + pt.plotX;
                 const yCenterPix = chart.plotTop + pt.plotY;
 
+                // Stop line BEFORE it reaches the circle so it never shows through
                 const yEndPix = Math.min(
-                  yCenterPix + markerRadius + (circleStrokeWidth / 2),
+                  yCenterPix + markerRadius - (circleStrokeWidth / 2) - 1,
                   plotBottomPix
                 );
 
@@ -544,7 +544,7 @@ looker.plugins.visualizations.add({
                     stroke: "#0b1020",
                     "stroke-width": lineStrokeWidth,
                     "stroke-linecap": "square",
-                    zIndex: 40
+                    zIndex: 180
                   })
                   .add(g);
               });
