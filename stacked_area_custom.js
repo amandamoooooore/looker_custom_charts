@@ -1,4 +1,4 @@
-// --- Load script once px7---
+// --- Load script once px8---
 function loadScriptOnce(src) {
   return new Promise((resolve, reject) => {
     if (document.querySelector(`script[src="${src}"]`)) return resolve();
@@ -460,6 +460,7 @@ looker.plugins.visualizations.add({
         dataLabels: {
           enabled: true,
           allowOverlap: true,
+          useHTML: false,
           crop: false,
           overflow: "allow",
           align: "center",
@@ -573,8 +574,9 @@ looker.plugins.visualizations.add({
               // 2) package marker above mask
               if (pkgSeries.group) pkgSeries.group.toFront();
             
-              // 3) package label text above everything
+              // 3) package label text above everything (Safari sometimes uses chart-level group)
               if (pkgSeries.dataLabelsGroup) pkgSeries.dataLabelsGroup.toFront();
+              if (chart.dataLabelsGroup) chart.dataLabelsGroup.toFront();
             }
           }
         }
