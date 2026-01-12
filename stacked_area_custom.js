@@ -1,4 +1,4 @@
-// --- Load script once px5---
+// --- Load script once px6---
 function loadScriptOnce(src) {
   return new Promise((resolve, reject) => {
     if (document.querySelector(`script[src="${src}"]`)) return resolve();
@@ -490,22 +490,10 @@ looker.plugins.visualizations.add({
           render: function () {
             const chart = this;
 
-            if (chart._priceFlagLinesGroup) {
-              chart._priceFlagLinesGroup.destroy();
-              chart._priceFlagLinesGroup = null;
-            }
-            if (chart._packageFlagLinesGroup) {
-              chart._packageFlagLinesGroup.destroy();
-              chart._packageFlagLinesGroup = null;
-            }
-            if (chart._packageFlagMaskGroup) {
-              chart._packageFlagMaskGroup.destroy();
-              chart._packageFlagMaskGroup = null;
-            }
-            if (chart._customXAxisLine) {
-              chart._customXAxisLine.destroy();
-              chart._customXAxisLine = null;
-            }
+            if (chart._priceFlagLinesGroup) { chart._priceFlagLinesGroup.destroy(); chart._priceFlagLinesGroup = null; }
+            if (chart._packageFlagLinesGroup) { chart._packageFlagLinesGroup.destroy(); chart._packageFlagLinesGroup = null; }
+            if (chart._packageFlagMaskGroup) { chart._packageFlagMaskGroup.destroy(); chart._packageFlagMaskGroup = null; }
+            if (chart._customXAxisLine) { chart._customXAxisLine.destroy(); chart._customXAxisLine = null; }
 
             const plotBottomPix = Math.round(chart.plotTop + chart.plotHeight + 1);
 
@@ -556,17 +544,15 @@ looker.plugins.visualizations.add({
             if (!!config.show_price_flag_lines) drawFlagLines("price-change-flags", "_priceFlagLinesGroup");
             if (!!config.show_package_flag_lines) drawFlagLines("package-flags", "_packageFlagLinesGroup");
 
-            // Package mask fix:
-            // - Smaller radius so it never overlaps the marker stroke (keeps stroke thickness identical)
-            // - Inserted under the package series group so it never covers the Px text
+            // MASK: ABOVE LINES (zIndex 95), BELOW PACKAGE MARKER/TEXT (DOM inserted before pkg group)
             const pkgSeries = chart.get("package-flags");
-            if (config.show_package_flags && pkgSeries && pkgSeries.group && pkgSeries.points && pkgSeries.points.length) {
-              const maskRadius = Math.max(0, markerRadius - circleStrokeWidth - 1);
+            if (config.show_package_flags && pkgSeries && pkgSeries.points && pkgSeries.points.length && pkgSeries.group) {
+              const maskRadius = markerRadius - (circleStrokeWidth / 2) - 0.5;
 
               chart._packageFlagMaskGroup = chart.renderer
                 .g("package-flag-masks")
-                .attr({ zIndex: 0 })
-                .add(chart.seriesGroup);
+                .attr({ zIndex: 95 })
+                .add();
 
               pkgSeries.points.forEach((pt) => {
                 if (pt.isNull || pt.plotX == null || pt.plotY == null) return;
@@ -576,17 +562,15 @@ looker.plugins.visualizations.add({
 
                 chart.renderer
                   .circle(xPix, yPix, maskRadius)
-                  .attr({
-                    fill: "#ffffff",
-                    stroke: "none"
-                  })
+                  .attr({ fill: "#ffffff", stroke: "none" })
                   .add(chart._packageFlagMaskGroup);
               });
 
-              // Ensure masks sit directly underneath the package series group (so they can't cover labels)
-              const masksEl = chart._packageFlagMaskGroup && chart._packageFlagMaskGroup.element;
-              const pkgEl = pkgSeries.group && pkgSeries.group.element;
+              const masksEl = chart._packageFlagMaskGroup.element;
+              const pkgEl = pkgSeries.group.element;
               if (masksEl && pkgEl && pkgEl.parentNode) {
+                // Put masks immediately BEFORE the package series group
+                // so package marker + dataLabel ("Px") always draw on top.
                 pkgEl.parentNode.insertBefore(masksEl, pkgEl);
               }
             }
