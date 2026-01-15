@@ -1,4 +1,4 @@
-//ud
+//ud2
 
 looker.plugins.visualizations.add({
   id: "simple_html_grid_crossfilter",
@@ -62,6 +62,7 @@ looker.plugins.visualizations.add({
       default: "#EB0037"
     },
 
+    // ✅ NEW
     conditional_formatting_json: {
       label: "Conditional Formatting JSON (optional)",
       type: "string",
@@ -69,10 +70,7 @@ looker.plugins.visualizations.add({
     }
   },
 
-  // remembers last sort state { fieldName, direction }
   _sortState: null,
-
-  // remembers which original row index was last clicked
   _selectedRowIndex: null,
 
   create(element) {
@@ -88,7 +86,6 @@ looker.plugins.visualizations.add({
       </div>
     `;
 
-    // Inject some CSS once (zebra rows, hover)
     if (!document.getElementById("simple_grid_crossfilter_css")) {
       const style = document.createElement("style");
       style.id = "simple_grid_crossfilter_css";
@@ -108,7 +105,6 @@ looker.plugins.visualizations.add({
     }
   },
 
-  // Safe HTML escape
   _escapeHTML(str) {
     return String(str)
       .replace(/&/g, "&amp;")
@@ -131,48 +127,70 @@ looker.plugins.visualizations.add({
 
   // conditional formatting parsing + matching
   _parseConditionalFormatting(str) {
-    // Returns: { [fieldName]: [rule, rule, ...] }
-    // rule: { contains?, equals?, in?, regex?, regexFlags?, textColor?, backgroundColor?, fontWeight?, fontStyle? }
-    const map = {};
-    if (!str) return map;
+    // Returns:
+    // {
+    //   byField: { [fieldName]: [rule...] },
+    //   byIndex: { [colIndexNumber]: [rule...] }
+    // }
+    const out = { byField: {}, byIndex: {} };
+    if (!str) return out;
 
     let parsed;
     try {
       parsed = JSON.parse(str);
     } catch (e) {
-      return map;
+      return out;
     }
 
-    // Support BOTH shapes:
-    // (A) Array: [ { field:"x", when:[...rules] }, ... ]
-    // (B) Object: { "x":[...rules], "y":[...rules] }
+    const addRules = (target, rules) => {
+      if (!Array.isArray(rules)) return;
+      target.push(...rules.filter(r => r && typeof r === "object"));
+    };
+
+    // (A) Array: [ { field:"x" OR colIndex:1, when:[...rules] }, ... ]
     if (Array.isArray(parsed)) {
       parsed.forEach(item => {
-        const field = item?.field;
         const rules = item?.when;
-        if (typeof field === "string" && Array.isArray(rules)) {
-          map[field] = rules.filter(r => r && typeof r === "object");
+        if (!Array.isArray(rules)) return;
+
+        if (Number.isInteger(item?.colIndex)) {
+          const idx = item.colIndex;
+          if (!out.byIndex[idx]) out.byIndex[idx] = [];
+          addRules(out.byIndex[idx], rules);
+          return;
+        }
+
+        if (typeof item?.field === "string") {
+          const field = item.field;
+          if (!out.byField[field]) out.byField[field] = [];
+          addRules(out.byField[field], rules);
         }
       });
-      return map;
+      return out;
     }
 
+    // (B) Object map: { "field.name":[rules], "2":[rules] }  (supports numeric keys)
     if (parsed && typeof parsed === "object") {
-      Object.keys(parsed).forEach(field => {
-        const rules = parsed[field];
-        if (Array.isArray(rules)) {
-          map[field] = rules.filter(r => r && typeof r === "object");
+      Object.keys(parsed).forEach(k => {
+        const rules = parsed[k];
+        if (!Array.isArray(rules)) return;
+
+        const maybeIndex = Number(k);
+        if (Number.isInteger(maybeIndex) && String(maybeIndex) === k.trim()) {
+          if (!out.byIndex[maybeIndex]) out.byIndex[maybeIndex] = [];
+          addRules(out.byIndex[maybeIndex], rules);
+        } else {
+          if (!out.byField[k]) out.byField[k] = [];
+          addRules(out.byField[k], rules);
         }
       });
-      return map;
     }
 
-    return map;
+    return out;
   },
 
   _matchRule(rule, valueStrLower) {
     if (!rule || typeof rule !== "object") return false;
-
     const has = (k) => Object.prototype.hasOwnProperty.call(rule, k);
 
     if (has("equals")) {
@@ -192,7 +210,6 @@ looker.plugins.visualizations.add({
         return false;
       }
     }
-
     return false;
   },
 
@@ -208,7 +225,6 @@ looker.plugins.visualizations.add({
   async updateAsync(data, element, config, queryResponse, details, done) {
     const container = document.getElementById("simple_grid_container");
 
-    // remember last args so we can re-render on header click
     this._lastData = data;
     this._lastElement = element;
     this._lastConfig = config;
@@ -233,7 +249,6 @@ looker.plugins.visualizations.add({
       return;
     }
 
-    // Hidden fields set (for display only)
     const hiddenSet = this._parseHiddenSet(config.hidden_fields || "");
     const visibleFields = allFields.filter(f => !hiddenSet.has(f.name));
 
@@ -243,13 +258,9 @@ looker.plugins.visualizations.add({
       return;
     }
 
-    // Determine which field to filter on when a cell is clicked
     let filterFieldName = (config.click_field || "").trim();
-    if (!filterFieldName && dims[0]) {
-      filterFieldName = dims[0].name; // default = first dimension
-    }
+    if (!filterFieldName && dims[0]) filterFieldName = dims[0].name;
 
-    // Helpers to pull cell values
     const getCell = (row, fieldName) => row[fieldName] || {};
     const getRaw  = (row, fieldName) => {
       const cell = getCell(row, fieldName);
@@ -314,17 +325,14 @@ looker.plugins.visualizations.add({
     };
 
     // Parse conditional formatting JSON once
-    const conditionalMap = this._parseConditionalFormatting(config.conditional_formatting_json || "");
+    const conditional = this._parseConditionalFormatting(config.conditional_formatting_json || "");
 
     // ---- Determine default sort state (only once) ----
     if (!this._sortState && config.enable_sorting !== false && config.default_sort_field) {
       const exists = visibleFields.find(f => f.name === config.default_sort_field);
       if (exists) {
         const dir = (config.default_sort_direction || "asc").toLowerCase() === "desc" ? "desc" : "asc";
-        this._sortState = {
-          fieldName: exists.name,
-          direction: dir
-        };
+        this._sortState = { fieldName: exists.name, direction: dir };
       }
     }
 
@@ -377,7 +385,6 @@ looker.plugins.visualizations.add({
     for (let i = 0; i < visibleFields.length; ) {
       const g = colGroups[i];
       if (!g) {
-        // Ungrouped column – single blank cell
         html += `
           <th style="
                 position:sticky;
@@ -400,13 +407,8 @@ looker.plugins.visualizations.add({
         continue;
       }
 
-      // Count contiguous visible columns in the same group
       let j = i + 1;
-      while (
-        j < visibleFields.length &&
-        colGroups[j] &&
-        colGroups[j].label === g.label
-      ) j++;
+      while (j < visibleFields.length && colGroups[j] && colGroups[j].label === g.label) j++;
       const colspan = j - i;
 
       html += `
@@ -439,7 +441,6 @@ looker.plugins.visualizations.add({
       const override = labelOverrides[f.name];
       let label = override || f.label_short || f.label || f.name;
 
-      // Add sort arrow if this is the sorted column
       if (config.enable_sorting !== false &&
           this._sortState &&
           this._sortState.fieldName === f.name) {
@@ -491,16 +492,19 @@ looker.plugins.visualizations.add({
 
       html += `<tr style="${rowStyle}">`;
 
-      visibleFields.forEach(field => {
+      visibleFields.forEach((field, colIndex) => {
         const raw   = getRaw(row, field.name);
         const disp  = getRendered(row, field.name);
         const safe  = this._escapeHTML(disp);
         const widthStyle = widthStyleFor(field.name);
 
-        // per-cell conditional formatting (skipped when the row is highlighted)
+        // per-cell conditional formatting (field OR colIndex; skipped when row highlighted)
         let conditionalStyle = "";
         if (!isSelected) {
-          const rules = conditionalMap[field.name] || [];
+          const rulesByIndex = conditional.byIndex[colIndex] || [];
+          const rulesByField = conditional.byField[field.name] || [];
+          const rules = rulesByIndex.length ? rulesByIndex : rulesByField;
+
           const norm = String(disp ?? "").toLowerCase(); // match against what is displayed
           const matched = rules.find(r => this._matchRule(r, norm));
           if (matched) conditionalStyle = this._styleFromRule(matched);
@@ -510,6 +514,7 @@ looker.plugins.visualizations.add({
           <td
             data-orig-index="${originalIndex}"
             data-field-name="${this._escapeHTML(field.name)}"
+            data-col-index="${colIndex}"
             style="
               padding:6px 10px;
               border-bottom:1px solid #f0f0f0;
@@ -556,7 +561,6 @@ looker.plugins.visualizations.add({
               viz._sortState.direction === "asc" ? "desc" : "asc";
           }
 
-          // Re-render with the same data & config
           if (viz._lastData && viz._lastElement && viz._lastQueryResponse) {
             viz.updateAsync(
               viz._lastData,
@@ -573,22 +577,14 @@ looker.plugins.visualizations.add({
 
       // --- Cell click: cross-filter ---
       if (!cell) return;
-
-      // Determine which field to filter on when a cell is clicked
-      const fields = (viz._lastQueryResponse && viz._lastQueryResponse.fields) || {};
-      const dims   = fields.dimension_like || [];
-      let filterFieldName = (config.click_field || "").trim();
-      if (!filterFieldName && dims[0]) filterFieldName = dims[0].name;
       if (!filterFieldName) return;
 
       const origIndex = Number(cell.getAttribute("data-orig-index"));
       if (!Number.isInteger(origIndex) || origIndex < 0 || origIndex >= (viz._lastData || []).length) return;
 
-      // store selection so row can be highlighted on next render
       viz._selectedRowIndex = origIndex;
 
       const row = viz._lastData[origIndex];
-
       const getCell = (r, fieldName) => r[fieldName] || {};
       const getRaw  = (r, fieldName) => {
         const c = getCell(r, fieldName);
