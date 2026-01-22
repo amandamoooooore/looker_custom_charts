@@ -25,24 +25,24 @@ looker.plugins.visualizations.add({
     show_price_flags: { label: "Show Price Change Flags", type: "boolean", default: true, section: "Flags" },
     price_change_flag_col: { label: "Price Change Flag Column (1-based)", type: "number", default: 4, section: "Flags" },
     price_change_tooltip_col: { label: "Price Change Tooltip Column (1-based)", type: "number", default: 10, section: "Flags" },
-    show_price_flag_lines: { label: "Show Vertical Flag Lines", type: "boolean", default: true, section: "Flags" },
-    price_flag_icon: { label: "Flag Icon Text", type: "string", default: "£", section: "Flags" },
+    show_price_flag_lines: { label: "Show Vertical Price Flag Lines", type: "boolean", default: true, section: "Flags" },
+    price_flag_icon: { label: "Price Flag Icon Text", type: "string", default: "£", section: "Flags" },
 
     // --- PACKAGE FLAGS (by column number) ---
     show_package_flags: { label: "Show Package Flags", type: "boolean", default: false, section: "Flags" },
     package_flag_col: { label: "Package Flag Column (1-based)", type: "number", default: 5, section: "Flags" },
     package_tooltip_col: { label: "Package Tooltip Column (1-based)", type: "number", default: 11, section: "Flags" },
-    show_package_flag_lines: { label: "Show Vertical Flag Lines", type: "boolean", default: true, section: "Flags" },
-    package_flag_icon: { label: "Flag Icon Text", type: "string", default: "P", section: "Flags" },
+    show_package_flag_lines: { label: "Show Vertical Package Flag Lines", type: "boolean", default: true, section: "Flags" },
+    package_flag_icon: { label: "Package Flag Icon Text", type: "string", default: "P", section: "Flags" },
 
     // --- X AXIS ---
     x_axis_title:  { label: "X Axis Title", type: "string", default: "", section: "Axis" },
-    reverse_x_axis:{ label: "Reverse", type: "boolean", default: false, section: "Axis" },
-    x_label_step:  { label: "Label Step", type: "number", default: 1, section: "Axis" },
-    force_x_range: { label: "Use Custom Min/Max/Step", type: "boolean", default: true, section: "Axis" },
-    x_min:         { label: "Min (numeric)", type: "number",  default: 1,  section: "Axis" },
-    x_max:         { label: "Max (numeric)", type: "number",  default: 30, section: "Axis" },
-    x_step:        { label: "Step",          type: "number",  default: 1,  section: "Axis" },
+    reverse_x_axis:{ label: "X Axis Reverse", type: "boolean", default: false, section: "Axis" },
+    x_label_step:  { label: "X Axis Label Step", type: "number", default: 1, section: "Axis" },
+    force_x_range: { label: "X Axis Use Custom Min/Max/Step", type: "boolean", default: true, section: "Axis" },
+    x_min:         { label: "X Axis Min (numeric)", type: "number",  default: 1,  section: "Axis" },
+    x_max:         { label: "X Axis Max (numeric)", type: "number",  default: 30, section: "Axis" },
+    x_step:        { label: "X Axis Step",          type: "number",  default: 1,  section: "Axis" },
 
     // --- Y AXIS ---
     y_axis_title:  { label: "Y Axis Title (override)", type: "string", default: "", section: "Axis" },
