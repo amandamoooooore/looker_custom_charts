@@ -22,43 +22,43 @@ looker.plugins.visualizations.add({
     value_measure: { label: "Value Measure", type: "string", display: "select", values: [], section: "Data" },
 
     // --- PRICE FLAGS (by column number) ---
-    show_price_flags: { label: "Show Price Change Flags", type: "boolean", default: true, section: "Price Flags" },
-    price_change_flag_col: { label: "Price Change Flag Column (1-based)", type: "number", default: 4, section: "Price Flags" },
-    price_change_tooltip_col: { label: "Price Change Tooltip Column (1-based)", type: "number", default: 10, section: "Price Flags" },
-    show_price_flag_lines: { label: "Show Vertical Flag Lines", type: "boolean", default: true, section: "Price Flags" },
-    price_flag_icon: { label: "Flag Icon Text", type: "string", default: "£", section: "Price Flags" },
+    show_price_flags: { label: "Show Price Change Flags", type: "boolean", default: true, section: "Flags" },
+    price_change_flag_col: { label: "Price Change Flag Column (1-based)", type: "number", default: 4, section: "Flags" },
+    price_change_tooltip_col: { label: "Price Change Tooltip Column (1-based)", type: "number", default: 10, section: "Flags" },
+    show_price_flag_lines: { label: "Show Vertical Flag Lines", type: "boolean", default: true, section: "Flags" },
+    price_flag_icon: { label: "Flag Icon Text", type: "string", default: "£", section: "Flags" },
 
     // --- PACKAGE FLAGS (by column number) ---
-    show_package_flags: { label: "Show Package Flags", type: "boolean", default: false, section: "Package Flags" },
-    package_flag_col: { label: "Package Flag Column (1-based)", type: "number", default: 5, section: "Package Flags" },
-    package_tooltip_col: { label: "Package Tooltip Column (1-based)", type: "number", default: 11, section: "Package Flags" },
-    show_package_flag_lines: { label: "Show Vertical Flag Lines", type: "boolean", default: true, section: "Package Flags" },
-    package_flag_icon: { label: "Flag Icon Text", type: "string", default: "P", section: "Package Flags" },
+    show_package_flags: { label: "Show Package Flags", type: "boolean", default: false, section: "Flags" },
+    package_flag_col: { label: "Package Flag Column (1-based)", type: "number", default: 5, section: "Flags" },
+    package_tooltip_col: { label: "Package Tooltip Column (1-based)", type: "number", default: 11, section: "Flags" },
+    show_package_flag_lines: { label: "Show Vertical Flag Lines", type: "boolean", default: true, section: "Flags" },
+    package_flag_icon: { label: "Flag Icon Text", type: "string", default: "P", section: "Flags" },
 
     // --- X AXIS ---
-    x_axis_title:  { label: "X Axis Title", type: "string", default: "", section: "X Axis" },
-    reverse_x_axis:{ label: "Reverse", type: "boolean", default: false, section: "X Axis" },
-    x_label_step:  { label: "Label Step", type: "number", default: 1, section: "X Axis" },
-    force_x_range: { label: "Use Custom Min/Max/Step", type: "boolean", default: true, section: "X Axis" },
-    x_min:         { label: "Min (numeric)", type: "number",  default: 1,  section: "X Axis" },
-    x_max:         { label: "Max (numeric)", type: "number",  default: 30, section: "X Axis" },
-    x_step:        { label: "Step",          type: "number",  default: 1,  section: "X Axis" },
+    x_axis_title:  { label: "X Axis Title", type: "string", default: "", section: "Axis" },
+    reverse_x_axis:{ label: "Reverse", type: "boolean", default: false, section: "Axis" },
+    x_label_step:  { label: "Label Step", type: "number", default: 1, section: "Axis" },
+    force_x_range: { label: "Use Custom Min/Max/Step", type: "boolean", default: true, section: "Axis" },
+    x_min:         { label: "Min (numeric)", type: "number",  default: 1,  section: "Axis" },
+    x_max:         { label: "Max (numeric)", type: "number",  default: 30, section: "Axis" },
+    x_step:        { label: "Step",          type: "number",  default: 1,  section: "Axis" },
 
     // --- Y AXIS ---
-    y_axis_title:  { label: "Y Axis Title (override)", type: "string", default: "", section: "Y Axis" },
+    y_axis_title:  { label: "Y Axis Title (override)", type: "string", default: "", section: "Axis" },
 
     // --- APPEARANCE/BEHAVIOUR ---
     area_opacity:  { label: "Area Opacity (0–1)", type: "number", default: 0.6, section: "Appearance" },
     show_markers:  { label: "Show Point Markers", type: "boolean", default: false, section: "Appearance" },
-    use_tooltip_field: { label: "Use 2nd measure for HTML tooltip", type: "boolean", default: false, section: "Behaviour" },
-    no_data_message:   { label: "No-data Message", type: "string", default: "No data to display", section: "Behaviour" },
+    use_tooltip_field: { label: "Use 2nd measure for HTML tooltip", type: "boolean", default: false, section: "Appearance" },
+    no_data_message:   { label: "No-data Message", type: "string", default: "No data to display", section: "Appearance" },
 
     // --- COLOURS ---
     series_color_map: {
       label: "Series → HEX (one per line: Name = #HEX)",
       type: "string",
       default: "",
-      section: "Colours"
+      section: "Appearance"
     },
 
     // --- LEGEND ---
