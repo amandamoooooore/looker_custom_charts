@@ -1,4 +1,4 @@
-//updated slider styling
+//update to slider
 
 looker.plugins.visualizations.add({
   id: "simple_html_grid_crossfilter",
@@ -104,15 +104,23 @@ looker.plugins.visualizations.add({
           background: #eef2ff;
         }
 
-        #simple_grid_container .sg-slider {
+        /* Slider layout to match reference image:
+           - pill is inset from cell edges (left/right)
+           - marker can extend without being clipped
+        */
+        #simple_grid_container .sg-slider-wrap {
           position: relative;
-          display: block;
-          height: 12px;
           width: 100%;
-          min-width: 0;
+          padding: 0 18px; /* inset like the reference */
+          box-sizing: border-box;
+        }
+
+        #simple_grid_container .sg-slider-track {
+          position: relative;
+          height: 16px;
           border-radius: 999px;
-          overflow: hidden;
-          background: #e5e7eb;
+          overflow: hidden; /* keeps pill ends perfectly rounded */
+          background: #e5e7eb; /* used for zero + fallback */
           box-sizing: border-box;
         }
 
@@ -124,11 +132,13 @@ looker.plugins.visualizations.add({
 
         #simple_grid_container .sg-slider-marker {
           position: absolute;
-          top: -7px;
-          height: 26px;
-          width: 4px;
+          top: -7px;        /* lets it extend above the pill */
+          height: 30px;
+          width: 3px;
           background: #0b1020;
           border-radius: 2px;
+          transform: translateX(-50%); /* center on % position */
+          pointer-events: none;
         }
       `;
       document.head.appendChild(style);
@@ -185,15 +195,14 @@ looker.plugins.visualizations.add({
 
   _renderSliderHTML(v) {
     const value = Math.max(0, Math.min(100, v));
-    const color = this._sliderColorFor(value);
-    const fill = value === 0 ? "#e5e7eb" : color;
-
-    const markerLeft = Math.max(1, Math.min(99, value));
+    const fill = this._sliderColorFor(value);
 
     return `
-      <div class="sg-slider ${value === 0 ? "sg-zero" : ""}">
-        <div class="sg-slider-fill" style="background:${this._escapeHTML(fill)};"></div>
-        <div class="sg-slider-marker" style="left:${markerLeft}%;"></div>
+      <div class="sg-slider-wrap">
+        <div class="sg-slider-track">
+          <div class="sg-slider-fill" style="background:${this._escapeHTML(fill)};"></div>
+        </div>
+        <div class="sg-slider-marker" style="left:${value}%;"></div>
       </div>
     `;
   },
@@ -576,7 +585,8 @@ looker.plugins.visualizations.add({
           }
         }
 
-        const paddingStyle = isSliderCell ? "padding:10px 6px;" : "padding:6px 10px;";
+        const paddingStyle = isSliderCell ? "padding:12px 10px;" : "padding:6px 10px;";
+        const overflowStyle = isSliderCell ? "overflow:visible;" : "overflow:hidden;";
 
         html += `
           <td
@@ -588,7 +598,7 @@ looker.plugins.visualizations.add({
               border-bottom:1px solid #f0f0f0;
               cursor:pointer;
               white-space:nowrap;
-              overflow:hidden;
+              ${overflowStyle}
               text-overflow:ellipsis;
               font-family:'Roboto','Helvetica Neue',Helvetica,Arial,sans-serif;
               font-size:12px;
