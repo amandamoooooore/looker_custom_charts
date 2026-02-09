@@ -1,4 +1,4 @@
-//fix bar outside slider
+//remove extra header
 
 looker.plugins.visualizations.add({
   id: "simple_html_grid_crossfilter",
@@ -104,12 +104,11 @@ looker.plugins.visualizations.add({
           background: #eef2ff;
         }
 
-        /* Slider layout (marker position is calculated against the pill width, not the whole cell) */
         #simple_grid_container .sg-slider-wrap {
           position: relative;
           width: 100%;
-          --sg-inset: 18px;            /* left/right inset like your reference */
-          padding: 0 var(--sg-inset);  /* creates the inset area */
+          --sg-inset: 18px;
+          padding: 0 var(--sg-inset);
           box-sizing: border-box;
         }
 
@@ -117,7 +116,7 @@ looker.plugins.visualizations.add({
           position: relative;
           height: 16px;
           border-radius: 999px;
-          overflow: hidden; /* keeps rounded ends perfect */
+          overflow: hidden;
           background: #e5e7eb;
           box-sizing: border-box;
         }
@@ -128,7 +127,6 @@ looker.plugins.visualizations.add({
           border-radius: 999px;
         }
 
-        /* Marker is positioned relative to the track width via calc() */
         #simple_grid_container .sg-slider-marker {
           position: absolute;
           top: -7px;
@@ -195,12 +193,6 @@ looker.plugins.visualizations.add({
   _renderSliderHTML(v) {
     const value = Math.max(0, Math.min(100, v));
     const fill = this._sliderColorFor(value);
-
-    /* 
-      IMPORTANT: marker left is calculated against the pill width:
-      left = inset + (available_width * value/100)
-      where available_width = 100% - 2*inset
-    */
     const markerLeftCalc = `calc(var(--sg-inset) + (100% - (2 * var(--sg-inset))) * ${value} / 100)`;
 
     return `
@@ -354,20 +346,24 @@ looker.plugins.visualizations.add({
     };
 
     let groupByField = {};
+    let hasGroups = false;
     try {
       const parsed = config.groups_json ? JSON.parse(config.groups_json) : [];
       (parsed || []).forEach(g => {
         const label = g.label || g.name || "";
         const color = g.color || "#d9e3f8";
         const fieldsList = g.fields || [];
+        if (label && Array.isArray(fieldsList) && fieldsList.length) hasGroups = true;
         fieldsList.forEach(fn => {
           groupByField[fn] = { label, color };
         });
       });
     } catch (e) {
       groupByField = {};
+      hasGroups = false;
     }
     const colGroups = visibleFields.map(f => groupByField[f.name] || null);
+    if (!colGroups.some(Boolean)) hasGroups = false;
 
     let labelOverrides = {};
     try {
@@ -454,20 +450,49 @@ looker.plugins.visualizations.add({
         <thead>
     `;
 
-    html += "<tr>";
+    /* Only render the group header row when groups_json produces at least one valid group mapping */
+    if (hasGroups) {
+      html += "<tr>";
 
-    for (let i = 0; i < visibleFields.length; ) {
-      const g = colGroups[i];
-      if (!g) {
+      for (let i = 0; i < visibleFields.length; ) {
+        const g = colGroups[i];
+        if (!g) {
+          html += `
+            <th style="
+                  position:sticky;
+                  top:0;
+                  z-index:2;
+                  background:#111a44;
+                  color:#111a44;
+                  padding:4px 10px;
+                  border-bottom:none;
+                  white-space:nowrap;
+                  overflow:hidden;
+                  text-overflow:ellipsis;
+                  font-family:'Roboto','Helvetica Neue',Helvetica,Arial,sans-serif;
+                  font-size:13px;
+                  font-weight:600;
+            ">
+              &nbsp;
+            </th>`;
+          i++;
+          continue;
+        }
+
+        let j = i + 1;
+        while (j < visibleFields.length && colGroups[j] && colGroups[j].label === g.label) j++;
+        const colspan = j - i;
+
         html += `
-          <th style="
+          <th colspan="${colspan}" style="
                 position:sticky;
                 top:0;
-                z-index:2;
-                background:#111a44;
-                color:#111a44;
-                padding:4px 10px;
+                z-index:3;
+                background:${this._escapeHTML(g.color)};
+                color:#0b1020;
+                padding:6px 10px;
                 border-bottom:none;
+                text-align:center;
                 white-space:nowrap;
                 overflow:hidden;
                 text-overflow:ellipsis;
@@ -475,39 +500,15 @@ looker.plugins.visualizations.add({
                 font-size:13px;
                 font-weight:600;
           ">
-            &nbsp;
+            ${this._escapeHTML(g.label)}
           </th>`;
-        i++;
-        continue;
+        i = j;
       }
 
-      let j = i + 1;
-      while (j < visibleFields.length && colGroups[j] && colGroups[j].label === g.label) j++;
-      const colspan = j - i;
-
-      html += `
-        <th colspan="${colspan}" style="
-              position:sticky;
-              top:0;
-              z-index:3;
-              background:${this._escapeHTML(g.color)};
-              color:#0b1020;
-              padding:6px 10px;
-              border-bottom:none;
-              text-align:center;
-              white-space:nowrap;
-              overflow:hidden;
-              text-overflow:ellipsis;
-              font-family:'Roboto','Helvetica Neue',Helvetica,Arial,sans-serif;
-              font-size:13px;
-              font-weight:600;
-        ">
-          ${this._escapeHTML(g.label)}
-        </th>`;
-      i = j;
+      html += "</tr>";
     }
 
-    html += "</tr>";
+    const headerTop = hasGroups ? 26 : 0;
 
     html += "<tr>";
     for (const f of visibleFields) {
@@ -528,7 +529,7 @@ looker.plugins.visualizations.add({
           data-sort-field="${this._escapeHTML(f.name)}"
           style="
               position:sticky;
-              top:26px;
+              top:${headerTop}px;
               z-index:4;
               background:#111a44;
               color:#fff;
