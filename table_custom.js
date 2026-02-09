@@ -1,8 +1,8 @@
-//ud2
+//with slider
 
 looker.plugins.visualizations.add({
   id: "simple_html_grid_crossfilter",
-  label: "Simple Grid (cross-filter + groups + labels + sorting + widths + hide + highlight)",
+  label: "Simple Grid (cross-filter + groups + labels + sorting + widths + hide + highlight + sliders)",
   supports: { crossfilter: true },
 
   options: {
@@ -35,10 +35,7 @@ looker.plugins.visualizations.add({
       label: "Default sort direction",
       type: "string",
       display: "select",
-      values: [
-        { Ascending: "asc" },
-        { Descending: "desc" }
-      ],
+      values: [{ Ascending: "asc" }, { Descending: "desc" }],
       default: "asc"
     },
     default_column_width: {
@@ -63,6 +60,11 @@ looker.plugins.visualizations.add({
     },
     conditional_formatting_json: {
       label: "Conditional Formatting JSON (optional)",
+      type: "string",
+      default: ""
+    },
+    slider_columns: {
+      label: "Slider columns (0-based visible column indexes; comma/newline separated)",
       type: "string",
       default: ""
     }
@@ -98,6 +100,47 @@ looker.plugins.visualizations.add({
         #simple_grid_container table.simple-grid tbody tr:hover {
           background: #eef2ff;
         }
+
+        /* --- Slider cell renderer --- */
+        #simple_grid_container .sg-slider {
+          position: relative;
+          height: 14px;
+          width: 100%;
+          min-width: 120px;
+          border-radius: 999px;
+          overflow: hidden;
+          background: #e5e7eb; /* fallback track */
+        }
+        #simple_grid_container .sg-slider .sg-slider-fill {
+          position: absolute;
+          inset: 0;
+          width: 0%;
+          border-radius: 999px;
+        }
+        #simple_grid_container .sg-slider .sg-slider-marker {
+          position: absolute;
+          top: -6px;
+          height: 26px;
+          width: 3px;
+          background: #0b1020;
+          border-radius: 2px;
+          transform: translateX(-1px);
+        }
+        #simple_grid_container .sg-slider.sg-zero {
+          background: #e5e7eb;
+        }
+        #simple_grid_container .sg-slider-wrap {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        #simple_grid_container .sg-slider-value {
+          min-width: 34px;
+          text-align: right;
+          color: inherit;
+          opacity: 0.85;
+          font-variant-numeric: tabular-nums;
+        }
       `;
       document.head.appendChild(style);
     }
@@ -121,6 +164,58 @@ looker.plugins.visualizations.add({
       .filter(Boolean)
       .forEach(f => set.add(f));
     return set;
+  },
+
+  _parseIndexSet(str) {
+    const set = new Set();
+    if (!str) return set;
+    String(str)
+      .split(/[\n,]/)
+      .map(s => s.trim())
+      .filter(Boolean)
+      .forEach(x => {
+        const n = Number(x);
+        if (Number.isInteger(n) && n >= 0) set.add(n);
+      });
+    return set;
+  },
+
+  _toNumberMaybe(v) {
+    if (v === null || v === undefined) return null;
+    if (typeof v === "number" && Number.isFinite(v)) return v;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  },
+
+  _sliderColorFor(v) {
+    // v is 0..100
+    if (v === 0) return "#e5e7eb"; // grey
+    if (v <= 33) return "#ff3b30"; // red
+    if (v <= 66) return "#fbbc04"; // yellow
+    return "#34c759"; // green
+  },
+
+  _renderSliderHTML(value0to100) {
+    const v = Math.max(0, Math.min(100, value0to100));
+    const color = this._sliderColorFor(v);
+    const isZero = v === 0;
+
+    // Full bar color; marker shows the position
+    const fillStyle = isZero
+      ? "width:100%;background:#e5e7eb;"
+      : `width:100%;background:${this._escapeHTML(color)};`;
+
+    const markerLeft = Math.max(0, Math.min(100, v));
+
+    return `
+      <div class="sg-slider-wrap">
+        <div class="sg-slider ${isZero ? "sg-zero" : ""}" aria-label="Value ${v}">
+          <div class="sg-slider-fill" style="${fillStyle}"></div>
+          <div class="sg-slider-marker" style="left:${markerLeft}%;"></div>
+        </div>
+        <div class="sg-slider-value">${v}</div>
+      </div>
+    `;
   },
 
   // conditional formatting parsing + matching
@@ -255,6 +350,9 @@ looker.plugins.visualizations.add({
       done();
       return;
     }
+
+    // slider columns (0-based indexes of visibleFields)
+    const sliderIndexSet = this._parseIndexSet(config.slider_columns || "");
 
     let filterFieldName = (config.click_field || "").trim();
     if (!filterFieldName && dims[0]) filterFieldName = dims[0].name;
@@ -493,7 +591,6 @@ looker.plugins.visualizations.add({
       visibleFields.forEach((field, colIndex) => {
         const raw   = getRaw(row, field.name);
         const disp  = getRendered(row, field.name);
-        const safe  = this._escapeHTML(disp);
         const widthStyle = widthStyleFor(field.name);
 
         // per-cell conditional formatting (field OR colIndex; skipped when row highlighted)
@@ -506,6 +603,15 @@ looker.plugins.visualizations.add({
           const norm = String(disp ?? "").toLowerCase(); // match against what is displayed
           const matched = rules.find(r => this._matchRule(r, norm));
           if (matched) conditionalStyle = this._styleFromRule(matched);
+        }
+
+        // Slider renderer for configured columns where value is 0..100
+        let cellInnerHTML = this._escapeHTML(disp);
+        if (sliderIndexSet.has(colIndex)) {
+          const n = this._toNumberMaybe(raw ?? disp);
+          if (n !== null && n >= 0 && n <= 100) {
+            cellInnerHTML = this._renderSliderHTML(Math.round(n));
+          }
         }
 
         html += `
@@ -527,7 +633,7 @@ looker.plugins.visualizations.add({
               ${widthStyle}
               ${conditionalStyle}
             ">
-            ${safe}
+            ${cellInnerHTML}
           </td>`;
       });
 
