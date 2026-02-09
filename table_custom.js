@@ -1,4 +1,4 @@
-//update to slider
+//fix bar outside slider
 
 looker.plugins.visualizations.add({
   id: "simple_html_grid_crossfilter",
@@ -104,14 +104,12 @@ looker.plugins.visualizations.add({
           background: #eef2ff;
         }
 
-        /* Slider layout to match reference image:
-           - pill is inset from cell edges (left/right)
-           - marker can extend without being clipped
-        */
+        /* Slider layout (marker position is calculated against the pill width, not the whole cell) */
         #simple_grid_container .sg-slider-wrap {
           position: relative;
           width: 100%;
-          padding: 0 18px; /* inset like the reference */
+          --sg-inset: 18px;            /* left/right inset like your reference */
+          padding: 0 var(--sg-inset);  /* creates the inset area */
           box-sizing: border-box;
         }
 
@@ -119,8 +117,8 @@ looker.plugins.visualizations.add({
           position: relative;
           height: 16px;
           border-radius: 999px;
-          overflow: hidden; /* keeps pill ends perfectly rounded */
-          background: #e5e7eb; /* used for zero + fallback */
+          overflow: hidden; /* keeps rounded ends perfect */
+          background: #e5e7eb;
           box-sizing: border-box;
         }
 
@@ -130,14 +128,15 @@ looker.plugins.visualizations.add({
           border-radius: 999px;
         }
 
+        /* Marker is positioned relative to the track width via calc() */
         #simple_grid_container .sg-slider-marker {
           position: absolute;
-          top: -7px;        /* lets it extend above the pill */
+          top: -7px;
           height: 30px;
           width: 3px;
           background: #0b1020;
           border-radius: 2px;
-          transform: translateX(-50%); /* center on % position */
+          transform: translateX(-50%);
           pointer-events: none;
         }
       `;
@@ -197,12 +196,19 @@ looker.plugins.visualizations.add({
     const value = Math.max(0, Math.min(100, v));
     const fill = this._sliderColorFor(value);
 
+    /* 
+      IMPORTANT: marker left is calculated against the pill width:
+      left = inset + (available_width * value/100)
+      where available_width = 100% - 2*inset
+    */
+    const markerLeftCalc = `calc(var(--sg-inset) + (100% - (2 * var(--sg-inset))) * ${value} / 100)`;
+
     return `
       <div class="sg-slider-wrap">
         <div class="sg-slider-track">
           <div class="sg-slider-fill" style="background:${this._escapeHTML(fill)};"></div>
         </div>
-        <div class="sg-slider-marker" style="left:${value}%;"></div>
+        <div class="sg-slider-marker" style="left:${markerLeftCalc};"></div>
       </div>
     `;
   },
