@@ -61,8 +61,6 @@ looker.plugins.visualizations.add({
       type: "string",
       default: "#EB0037"
     },
-
-    // ✅ NEW
     conditional_formatting_json: {
       label: "Conditional Formatting JSON (optional)",
       type: "string",
