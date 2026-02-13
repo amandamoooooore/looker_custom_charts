@@ -1,102 +1,4 @@
-//PDF friendly ...
-
-const __scriptPromises = new Map();
-
-function loadScriptOnce(src, { testGlobal } = {}) {
-  if (__scriptPromises.has(src)) return __scriptPromises.get(src);
-
-  const p = new Promise((resolve, reject) => {
-    if (typeof testGlobal === "function" && testGlobal()) return resolve();
-
-    const existing = document.querySelector(`script[src="${src}"]`);
-    if (existing) {
-      if (existing.dataset.loaded === "true") {
-        if (typeof testGlobal === "function" && !testGlobal()) {
-          return reject(new Error("Script loaded but global not available: " + src));
-        }
-        return resolve();
-      }
-
-      existing.addEventListener(
-        "load",
-        () => {
-          existing.dataset.loaded = "true";
-          if (typeof testGlobal === "function" && !testGlobal()) {
-            return reject(new Error("Script loaded but global not available: " + src));
-          }
-          resolve();
-        },
-        { once: true }
-      );
-
-      existing.addEventListener(
-        "error",
-        () => reject(new Error("Failed to load " + src)),
-        { once: true }
-      );
-      return;
-    }
-
-    const s = document.createElement("script");
-    s.src = src;
-    s.async = true;
-    s.onload = () => {
-      s.dataset.loaded = "true";
-      if (typeof testGlobal === "function" && !testGlobal()) {
-        return reject(new Error("Script loaded but global not available: " + src));
-      }
-      resolve();
-    };
-    s.onerror = () => reject(new Error("Failed to load " + src));
-    document.head.appendChild(s);
-  });
-
-  __scriptPromises.set(src, p);
-  return p;
-}
-
-function waitForNonZeroSize(el, { minW = 50, minH = 50, frames = 90 } = {}) {
-  return new Promise((resolve) => {
-    let n = 0;
-    const tick = () => {
-      const r = el && el.getBoundingClientRect ? el.getBoundingClientRect() : { width: 0, height: 0 };
-      if (r.width >= minW && r.height >= minH) return resolve(r);
-      if (++n >= frames) return resolve(r);
-      requestAnimationFrame(tick);
-    };
-    tick();
-  });
-}
-
-function waitForChartPaint(chart, { timeoutMs = 4000, frames = 120 } = {}) {
-  return new Promise((resolve) => {
-    const start = Date.now();
-    let n = 0;
-
-    const isPainted = () => {
-      if (!chart || !chart.container) return false;
-      const svg = chart.container.querySelector("svg");
-      if (!svg) return false;
-
-      try {
-        const bb = svg.getBBox();
-        if (bb && bb.width > 10 && bb.height > 10) return true;
-      } catch (_) {}
-
-      const r = svg.getBoundingClientRect ? svg.getBoundingClientRect() : null;
-      return !!(r && r.width > 10 && r.height > 10);
-    };
-
-    const tick = () => {
-      if (isPainted()) return resolve(true);
-      if (++n >= frames) return resolve(false);
-      if (Date.now() - start >= timeoutMs) return resolve(false);
-      requestAnimationFrame(tick);
-    };
-
-    tick();
-  });
-}
+// PDF friendly ....
 
 looker.plugins.visualizations.add({
   id: "stacked_area_flexible",
@@ -169,15 +71,6 @@ looker.plugins.visualizations.add({
       `;
       document.head.appendChild(css);
     }
-
-    this._hcReady = (async () => {
-      await loadScriptOnce("https://code.highcharts.com/highcharts.js", {
-        testGlobal: () => !!window.Highcharts
-      });
-      await loadScriptOnce("https://code.highcharts.com/modules/accessibility.js", {
-        testGlobal: () => !!window.Highcharts
-      });
-    })();
   },
 
   destroy() {
@@ -241,12 +134,15 @@ looker.plugins.visualizations.add({
     const safeDone = () => { try { doneRendering && doneRendering(); } catch (_) {} };
 
     try {
-      await this._hcReady;
-
       const container = this._container;
       if (!container) { safeDone(); return; }
 
-      await waitForNonZeroSize(container, { minW: 50, minH: 50, frames: 90 });
+      if (!window.Highcharts) {
+        container.innerHTML =
+          "<div style='padding:12px;color:#c00'>Highcharts failed to load (manifest dependency). Check manifest dependencies / network allowlist.</div>";
+        safeDone();
+        return;
+      }
 
       const fields = queryResponse.fields || {};
       const dims = fields.dimension_like || [];
@@ -606,9 +502,6 @@ looker.plugins.visualizations.add({
           height: chartHeight,
           animation: false,
           events: {
-            load: function () {
-              this.__lookerLoaded = true;
-            },
             render: function () {
               const chart = this;
 
@@ -805,17 +698,9 @@ looker.plugins.visualizations.add({
 
       this._chart = Highcharts.chart(container, chartOptions);
 
-      try { this._chart.reflow(); } catch (_) {}
-      try { this._chart.redraw(false); } catch (_) {}
-
-      await waitForChartPaint(this._chart, { timeoutMs: 4000, frames: 120 });
-      await new Promise((r) => setTimeout(r, 50));
-
-      safeDone();
-
       setTimeout(() => {
         safeDone();
-      }, 6000);
+      }, 50);
 
     } catch (e) {
       if (this._container) {
