@@ -1,4 +1,4 @@
-// PDF friendly ..
+//PDF friendly ...
 
 const __scriptPromises = new Map();
 
@@ -6,12 +6,10 @@ function loadScriptOnce(src, { testGlobal } = {}) {
   if (__scriptPromises.has(src)) return __scriptPromises.get(src);
 
   const p = new Promise((resolve, reject) => {
-    // If caller provided a global test and it's already true, resolve immediately.
     if (typeof testGlobal === "function" && testGlobal()) return resolve();
 
     const existing = document.querySelector(`script[src="${src}"]`);
     if (existing) {
-      // If it already finished loading, resolve; otherwise wait for load/error.
       if (existing.dataset.loaded === "true") {
         if (typeof testGlobal === "function" && !testGlobal()) {
           return reject(new Error("Script loaded but global not available: " + src));
@@ -19,15 +17,23 @@ function loadScriptOnce(src, { testGlobal } = {}) {
         return resolve();
       }
 
-      existing.addEventListener("load", () => {
-        existing.dataset.loaded = "true";
-        if (typeof testGlobal === "function" && !testGlobal()) {
-          return reject(new Error("Script loaded but global not available: " + src));
-        }
-        resolve();
-      }, { once: true });
+      existing.addEventListener(
+        "load",
+        () => {
+          existing.dataset.loaded = "true";
+          if (typeof testGlobal === "function" && !testGlobal()) {
+            return reject(new Error("Script loaded but global not available: " + src));
+          }
+          resolve();
+        },
+        { once: true }
+      );
 
-      existing.addEventListener("error", () => reject(new Error("Failed to load " + src)), { once: true });
+      existing.addEventListener(
+        "error",
+        () => reject(new Error("Failed to load " + src)),
+        { once: true }
+      );
       return;
     }
 
@@ -49,16 +55,45 @@ function loadScriptOnce(src, { testGlobal } = {}) {
   return p;
 }
 
-// wait until the container has real size (PDF render often starts at 0x0)
 function waitForNonZeroSize(el, { minW = 50, minH = 50, frames = 90 } = {}) {
   return new Promise((resolve) => {
     let n = 0;
     const tick = () => {
       const r = el && el.getBoundingClientRect ? el.getBoundingClientRect() : { width: 0, height: 0 };
       if (r.width >= minW && r.height >= minH) return resolve(r);
-      if (++n >= frames) return resolve(r); // resolve anyway; we fall back to deterministic height
+      if (++n >= frames) return resolve(r);
       requestAnimationFrame(tick);
     };
+    tick();
+  });
+}
+
+function waitForChartPaint(chart, { timeoutMs = 4000, frames = 120 } = {}) {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    let n = 0;
+
+    const isPainted = () => {
+      if (!chart || !chart.container) return false;
+      const svg = chart.container.querySelector("svg");
+      if (!svg) return false;
+
+      try {
+        const bb = svg.getBBox();
+        if (bb && bb.width > 10 && bb.height > 10) return true;
+      } catch (_) {}
+
+      const r = svg.getBoundingClientRect ? svg.getBoundingClientRect() : null;
+      return !!(r && r.width > 10 && r.height > 10);
+    };
+
+    const tick = () => {
+      if (isPainted()) return resolve(true);
+      if (++n >= frames) return resolve(false);
+      if (Date.now() - start >= timeoutMs) return resolve(false);
+      requestAnimationFrame(tick);
+    };
+
     tick();
   });
 }
@@ -69,26 +104,22 @@ looker.plugins.visualizations.add({
   supports: { crossfilter: true },
 
   options: {
-    // --- DATA ---
     x_dim:         { label: "X Dimension", type: "string", display: "select", values: [], section: "Data" },
     series_dim:    { label: "Series Dimension", type: "string", display: "select", values: [], section: "Data" },
     value_measure: { label: "Value Measure", type: "string", display: "select", values: [], section: "Data" },
 
-    // --- PRICE FLAGS (by column number) ---
     show_price_flags: { label: "Show Price Change Flags", type: "boolean", default: true, section: "Flags" },
     price_change_flag_col: { label: "Price Change Flag Column (1-based)", type: "number", default: 4, section: "Flags" },
     price_change_tooltip_col: { label: "Price Change Tooltip Column (1-based)", type: "number", default: 10, section: "Flags" },
     show_price_flag_lines: { label: "Show Vertical Price Flag Lines", type: "boolean", default: true, section: "Flags" },
     price_flag_icon: { label: "Price Flag Icon Text", type: "string", default: "£", section: "Flags" },
 
-    // --- PACKAGE FLAGS (by column number) ---
     show_package_flags: { label: "Show Package Flags", type: "boolean", default: false, section: "Flags" },
     package_flag_col: { label: "Package Flag Column (1-based)", type: "number", default: 5, section: "Flags" },
     package_tooltip_col: { label: "Package Tooltip Column (1-based)", type: "number", default: 11, section: "Flags" },
     show_package_flag_lines: { label: "Show Vertical Package Flag Lines", type: "boolean", default: true, section: "Flags" },
     package_flag_icon: { label: "Package Flag Icon Text", type: "string", default: "P", section: "Flags" },
 
-    // --- X AXIS ---
     x_axis_title:  { label: "X Axis Title", type: "string", default: "", section: "Axis" },
     reverse_x_axis:{ label: "X Axis Reverse", type: "boolean", default: false, section: "Axis" },
     x_label_step:  { label: "X Axis Label Step", type: "number", default: 1, section: "Axis" },
@@ -97,16 +128,13 @@ looker.plugins.visualizations.add({
     x_max:         { label: "X Axis Max (numeric)", type: "number",  default: 30, section: "Axis" },
     x_step:        { label: "X Axis Step",          type: "number",  default: 1,  section: "Axis" },
 
-    // --- Y AXIS ---
     y_axis_title:  { label: "Y Axis Title (override)", type: "string", default: "", section: "Axis" },
 
-    // --- APPEARANCE/BEHAVIOUR ---
     area_opacity:  { label: "Area Opacity (0–1)", type: "number", default: 0.6, section: "Appearance" },
     show_markers:  { label: "Show Point Markers", type: "boolean", default: false, section: "Appearance" },
     use_tooltip_field: { label: "Use 2nd measure for HTML tooltip", type: "boolean", default: false, section: "Appearance" },
     no_data_message:   { label: "No-data Message", type: "string", default: "No data to display", section: "Appearance" },
 
-    // --- COLOURS ---
     series_color_map: {
       label: "Series → HEX (one per line: Name = #HEX)",
       type: "string",
@@ -114,24 +142,18 @@ looker.plugins.visualizations.add({
       section: "Appearance"
     },
 
-    // --- LEGEND ---
     legend_sort_alpha: { label: "Sort Legend A→Z", type: "boolean", default: false, section: "Legend" },
     legend_deselected_values: { label: "Auto-deselect Series (comma/newline)", type: "string", default: "", section: "Legend" }
   },
 
   create(element) {
-    // Instance-specific container (no global id)
     element.innerHTML = "";
     this._container = document.createElement("div");
     this._container.style.width = "100%";
     this._container.style.height = "100%";
-
-    // prevent collapse in headless/PDF layout
     this._container.style.minHeight = "360px";
-
     element.appendChild(this._container);
 
-    // Keep your tooltip CSS injection
     if (!document.getElementById("sa_area_css")) {
       const css = document.createElement("style");
       css.id = "sa_area_css";
@@ -148,7 +170,6 @@ looker.plugins.visualizations.add({
       document.head.appendChild(css);
     }
 
-    // Load highcharts once (still async)
     this._hcReady = (async () => {
       await loadScriptOnce("https://code.highcharts.com/highcharts.js", {
         testGlobal: () => !!window.Highcharts
@@ -160,7 +181,6 @@ looker.plugins.visualizations.add({
   },
 
   destroy() {
-    // Clean up chart instance if Looker tears down the viz
     if (this._chart && this._chart.destroy) {
       try { this._chart.destroy(); } catch (_) {}
     }
@@ -199,8 +219,8 @@ looker.plugins.visualizations.add({
       if (m.length >= 2) {
         const key = m[0].trim();
         const val = m.slice(1).join(":").trim();
-        if (key && /^#?[0-9a-f]{6}$/i.test(val.replace('#',''))) {
-          map.set(key, val.startsWith('#') ? val : ('#' + val));
+        if (key && /^#?[0-9a-f]{6}$/i.test(val.replace("#",""))) {
+          map.set(key, val.startsWith("#") ? val : ("#" + val));
         }
       }
     });
@@ -217,21 +237,15 @@ looker.plugins.visualizations.add({
     return set;
   },
 
-  // Use updateAsync and doneRendering
   async updateAsync(data, element, config, queryResponse, details, doneRendering) {
-    // Helper to ensure we always unblock PDF rendering
     const safeDone = () => { try { doneRendering && doneRendering(); } catch (_) {} };
 
     try {
       await this._hcReady;
 
       const container = this._container;
-      if (!container) {
-        safeDone();
-        return;
-      }
+      if (!container) { safeDone(); return; }
 
-      // pdf wait for layout sizing
       await waitForNonZeroSize(container, { minW: 50, minH: 50, frames: 90 });
 
       const fields = queryResponse.fields || {};
@@ -574,13 +588,11 @@ looker.plugins.visualizations.add({
 
       const viz = this;
 
-      // Destroy previous chart before creating a new one (helps in dashboard renderers)
       if (this._chart && this._chart.destroy) {
         try { this._chart.destroy(); } catch (_) {}
       }
       this._chart = null;
 
-      // Snapshot-friendly + PDF FIX height
       const chartHeight = Math.max(
         360,
         element.clientHeight || 0,
@@ -594,13 +606,8 @@ looker.plugins.visualizations.add({
           height: chartHeight,
           animation: false,
           events: {
-            // PDF: reflow + delay, then doneRendering
             load: function () {
-              const chart = this;
-              setTimeout(() => {
-                try { chart.reflow(); } catch (_) {}
-                safeDone();
-              }, 80);
+              this.__lookerLoaded = true;
             },
             render: function () {
               const chart = this;
@@ -796,19 +803,21 @@ looker.plugins.visualizations.add({
         series
       };
 
-      // Render into the instance container
       this._chart = Highcharts.chart(container, chartOptions);
 
-      // PDF: final safety so we don't miss snapshot if load doesn't fire
+      try { this._chart.reflow(); } catch (_) {}
+      try { this._chart.redraw(false); } catch (_) {}
+
+      await waitForChartPaint(this._chart, { timeoutMs: 4000, frames: 120 });
+      await new Promise((r) => setTimeout(r, 50));
+
+      safeDone();
+
       setTimeout(() => {
-        if (this._chart) {
-          try { this._chart.reflow(); } catch (_) {}
-        }
         safeDone();
-      }, 1500);
+      }, 6000);
 
     } catch (e) {
-      // Don't let PDF capture a blank tile
       if (this._container) {
         this._container.innerHTML = `<div style="padding:12px;color:#c00">Error rendering chart: ${this._escapeHTML(e?.message || String(e))}</div>`;
       }
