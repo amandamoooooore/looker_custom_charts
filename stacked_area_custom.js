@@ -1,14 +1,52 @@
-// PDF friendly
+// PDF friendly .
 
-function loadScriptOnce(src) {
-  return new Promise((resolve, reject) => {
-    if (document.querySelector(`script[src="${src}"]`)) return resolve();
+const __scriptPromises = new Map();
+
+function loadScriptOnce(src, { testGlobal } = {}) {
+  if (__scriptPromises.has(src)) return __scriptPromises.get(src);
+
+  const p = new Promise((resolve, reject) => {
+    // If caller provided a global test and it's already true, resolve immediately.
+    if (typeof testGlobal === "function" && testGlobal()) return resolve();
+
+    const existing = document.querySelector(`script[src="${src}"]`);
+    if (existing) {
+      // If it already finished loading, resolve; otherwise wait for load/error.
+      if (existing.dataset.loaded === "true") {
+        if (typeof testGlobal === "function" && !testGlobal()) {
+          return reject(new Error("Script loaded but global not available: " + src));
+        }
+        return resolve();
+      }
+
+      existing.addEventListener("load", () => {
+        existing.dataset.loaded = "true";
+        if (typeof testGlobal === "function" && !testGlobal()) {
+          return reject(new Error("Script loaded but global not available: " + src));
+        }
+        resolve();
+      }, { once: true });
+
+      existing.addEventListener("error", () => reject(new Error("Failed to load " + src)), { once: true });
+      return;
+    }
+
     const s = document.createElement("script");
     s.src = src;
-    s.onload = resolve;
+    s.async = true;
+    s.onload = () => {
+      s.dataset.loaded = "true";
+      if (typeof testGlobal === "function" && !testGlobal()) {
+        return reject(new Error("Script loaded but global not available: " + src));
+      }
+      resolve();
+    };
     s.onerror = () => reject(new Error("Failed to load " + src));
     document.head.appendChild(s);
   });
+
+  __scriptPromises.set(src, p);
+  return p;
 }
 
 looker.plugins.visualizations.add({
@@ -94,8 +132,12 @@ looker.plugins.visualizations.add({
 
     // Load highcharts once (still async)
     this._hcReady = (async () => {
-      await loadScriptOnce("https://code.highcharts.com/highcharts.js");
-      await loadScriptOnce("https://code.highcharts.com/modules/accessibility.js");
+      await loadScriptOnce("https://code.highcharts.com/highcharts.js", {
+        testGlobal: () => !!window.Highcharts
+      });
+      await loadScriptOnce("https://code.highcharts.com/modules/accessibility.js", {
+        testGlobal: () => !!window.Highcharts
+      });
     })();
   },
 
