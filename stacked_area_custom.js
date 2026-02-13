@@ -1,4 +1,4 @@
-// PDF friendly .
+// PDF friendly ..
 
 const __scriptPromises = new Map();
 
@@ -47,6 +47,20 @@ function loadScriptOnce(src, { testGlobal } = {}) {
 
   __scriptPromises.set(src, p);
   return p;
+}
+
+// wait until the container has real size (PDF render often starts at 0x0)
+function waitForNonZeroSize(el, { minW = 50, minH = 50, frames = 90 } = {}) {
+  return new Promise((resolve) => {
+    let n = 0;
+    const tick = () => {
+      const r = el && el.getBoundingClientRect ? el.getBoundingClientRect() : { width: 0, height: 0 };
+      if (r.width >= minW && r.height >= minH) return resolve(r);
+      if (++n >= frames) return resolve(r); // resolve anyway; we fall back to deterministic height
+      requestAnimationFrame(tick);
+    };
+    tick();
+  });
 }
 
 looker.plugins.visualizations.add({
@@ -111,6 +125,10 @@ looker.plugins.visualizations.add({
     this._container = document.createElement("div");
     this._container.style.width = "100%";
     this._container.style.height = "100%";
+
+    // prevent collapse in headless/PDF layout
+    this._container.style.minHeight = "360px";
+
     element.appendChild(this._container);
 
     // Keep your tooltip CSS injection
@@ -207,6 +225,15 @@ looker.plugins.visualizations.add({
     try {
       await this._hcReady;
 
+      const container = this._container;
+      if (!container) {
+        safeDone();
+        return;
+      }
+
+      // pdf wait for layout sizing
+      await waitForNonZeroSize(container, { minW: 50, minH: 50, frames: 90 });
+
       const fields = queryResponse.fields || {};
       const dims = fields.dimension_like || [];
       const meas = fields.measure_like || [];
@@ -240,12 +267,6 @@ looker.plugins.visualizations.add({
 
       const packageFlagF = fieldByCol(config.package_flag_col);
       const packageFlagTipF = fieldByCol(config.package_tooltip_col);
-
-      const container = this._container;
-      if (!container) {
-        safeDone();
-        return;
-      }
 
       if (!xF || !sF || !vF) {
         container.innerHTML = "<div style='padding:12px;color:#666'>Select 2 dimensions and 1 measure, then click <b>Run</b>.</div>";
@@ -559,17 +580,27 @@ looker.plugins.visualizations.add({
       }
       this._chart = null;
 
-      // Snapshot-friendly: disable animations; keep tooltip inside; avoid async timing surprises.
+      // Snapshot-friendly + PDF FIX height
+      const chartHeight = Math.max(
+        360,
+        element.clientHeight || 0,
+        container.getBoundingClientRect().height || 0
+      );
+
       const chartOptions = {
         chart: {
           type: "area",
           spacing: [10,10,10,10],
-          height: element.clientHeight || 360,
-          animation: false, // snapshot-friendly
+          height: chartHeight,
+          animation: false,
           events: {
-            // signal rendering complete once Highcharts has drawn
+            // PDF: reflow + delay, then doneRendering
             load: function () {
-              safeDone();
+              const chart = this;
+              setTimeout(() => {
+                try { chart.reflow(); } catch (_) {}
+                safeDone();
+              }, 80);
             },
             render: function () {
               const chart = this;
@@ -685,7 +716,7 @@ looker.plugins.visualizations.add({
         legend: { align: "center", verticalAlign: "bottom" },
 
         plotOptions: {
-          series: { clip: false, animation: false }, // snapshot-friendly
+          series: { clip: false, animation: false },
           area: {
             stacking: "normal",
             connectNulls: false,
@@ -712,14 +743,14 @@ looker.plugins.visualizations.add({
           scatter: {
             cursor: "pointer",
             states: { hover: { enabled: true } },
-            animation: false // snapshot-friendly
+            animation: false
           }
         },
 
         tooltip: {
           useHTML: true,
           className: "sa-tooltip",
-          outside: false, // snapshot-friendly (avoid body-positioned tooltip DOM)
+          outside: false,
           backgroundColor: "#fff",
           borderColor: "#ccc",
           borderWidth: 1,
@@ -765,11 +796,17 @@ looker.plugins.visualizations.add({
         series
       };
 
-      // Render into the instance container 
+      // Render into the instance container
       this._chart = Highcharts.chart(container, chartOptions);
 
-      // NOTE: doneRendering is called in chart.events.load above.
-      // If load never fires for some reason, the catch/finally handles it.
+      // PDF: final safety so we don't miss snapshot if load doesn't fire
+      setTimeout(() => {
+        if (this._chart) {
+          try { this._chart.reflow(); } catch (_) {}
+        }
+        safeDone();
+      }, 1500);
+
     } catch (e) {
       // Don't let PDF capture a blank tile
       if (this._container) {
