@@ -1,4 +1,4 @@
-//with tile functionality
+//with tile functionality and row filter
 
 looker.plugins.visualizations.add({
     id: "simple_html_grid_crossfilter",
@@ -664,6 +664,11 @@ looker.plugins.visualizations.add({
         const fields = queryResponse.fields || {};
         const dims = fields.dimension_like || [];
         const meas = fields.measure_like || [];
+
+        // Row click -> dashboard filter field (fallback to first dimension)
+        let filterFieldName = (config.click_field || "").trim();
+        if (!filterFieldName && dims[0]) filterFieldName = dims[0].name;
+
         const allFields = [...dims, ...meas];
 
         if (!allFields.length) {
@@ -912,11 +917,12 @@ looker.plugins.visualizations.add({
             const th = evt.target.closest("th[data-sort-field]");
             const cell = evt.target.closest("td");
 
+            // Sorting
             if (th && config.enable_sorting !== false) {
                 const fieldName = th.getAttribute("data-sort-field");
                 if (fieldName) {
                     if (!viz._sortState || viz._sortState.fieldName !== fieldName) {
-                        viz._sortState = {fieldName, direction: "asc"};
+                        viz._sortState = { fieldName, direction: "asc" };
                     } else {
                         viz._sortState.direction = viz._sortState.direction === "asc" ? "desc" : "asc";
                     }
@@ -925,13 +931,31 @@ looker.plugins.visualizations.add({
                 return;
             }
 
-            // Row click: only highlight (no filtering)
             if (!cell) return;
 
             const origIndex = Number(cell.getAttribute("data-orig-index"));
-            if (!Number.isInteger(origIndex)) return;
+            if (!Number.isInteger(origIndex) || origIndex < 0) return;
 
+            // highlight only (does not change rows locally)
             viz._selectedRowIndex = origIndex;
+
+            // Push crossfilter to dashboard (like your older version)
+            if (filterFieldName && viz._lastData && viz._lastData[origIndex]) {
+                const row = viz._lastData[origIndex];
+
+                // Use the same helpers already in updateAsync scope:
+                const rawForFilter = getRaw(row, filterFieldName);
+                const displayForFilter = getRendered(row, filterFieldName);
+
+                if (rawForFilter !== null && rawForFilter !== undefined) {
+                    viz.trigger("filter", [{
+                        field: filterFieldName,
+                        value: String(rawForFilter),
+                        formatted: String(displayForFilter ?? rawForFilter)
+                    }]);
+                }
+            }
+
             viz._forceRerender();
         };
 
