@@ -182,7 +182,7 @@ looker.plugins.visualizations.add({
           font-size:14px;
           line-height:1.25;
           color:#0b1020;
-          font-weight:600;
+          font-weight:400;
         }
         #sg_tiles .sg-tile .sg-tile-number{ font-weight:800; }
         #sg_tiles .sg-tile.sg-clickable{ cursor:pointer; }
