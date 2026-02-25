@@ -1,5 +1,3 @@
-//with tile functionality and row filter
-
 looker.plugins.visualizations.add({
     id: "simple_html_grid_crossfilter",
     label: "Simple Grid (tiles constant + local table filtering)",
@@ -7,77 +5,119 @@ looker.plugins.visualizations.add({
 
     options: {
         click_field: {
-            label: "Row click: field to filter on locally (fully qualified name)",
+            label: "Row field to filter on (fully qualified name)",
             type: "string",
             default: "",
             section: "Behaviour"
         },
-        groups_json: {label: "Groups JSON (optional)", type: "string", default: "", section: "Behaviour"},
-        column_labels_json: {label: "Column Labels JSON (optional)", type: "string", default: "", section: "Behaviour"},
+        groups_json: {
+            label: "Column groups JSON (optional)",
+            type: "string",
+            default: "",
+            section: "Behaviour"
+        },
+        column_labels_json: {
+            label: "Column Labels JSON (optional)",
+            type: "string",
+            default: "",
+            section: "Behaviour"
+        },
         column_order_json: {
             label: "Column Order JSON (0-based visible indexes; e.g. [0,1,6,2,3])",
             type: "string",
             default: "",
             section: "Behaviour"
         },
-        enable_sorting: {label: "Enable column sorting", type: "boolean", default: true, section: "Behaviour"},
-        default_sort_field: {label: "Default sort field (fully qualified name)", type: "string", default: "", section: "Behaviour"},
+        enable_sorting: {
+            label: "Enable Column Sorting",
+            type: "boolean",
+            default: true,
+            section: "Behaviour"
+        },
+        default_sort_field: {
+            label: "Default Sort Field (fully qualified name)",
+            type: "string",
+            default: "",
+            section: "Behaviour"
+        },
         default_sort_direction: {
-            label: "Default sort direction",
+            label: "Default Sort Direction",
             type: "string",
             display: "select",
             values: [{Ascending: "asc"}, {Descending: "desc"}],
             default: "asc",
             section: "Behaviour"
         },
-        default_column_width: {label: "Default column width (px)", type: "number", default: 110, section: "Appearance"},
-        column_widths_json: {label: "Column Widths JSON (field: width_px)", type: "string", default: "", section: "Appearance"},
-        hidden_fields: {label: "Hidden fields (comma/newline separated)", type: "string", default: "", section: "Appearance"},
-        highlight_color: {label: "Selected Row Highlight Color", type: "string", default: "#EB0037", section: "Appearance"},
-        conditional_formatting_json: {label: "Conditional Formatting JSON (optional)", type: "string", default: "", section: "Appearance"},
+        default_column_width: {
+            label: "Default Column Width (px)",
+            type: "number",
+            default: 110,
+            section: "Appearance"
+        },
+        column_widths_json: {
+            label: "Column Widths JSON",
+            type: "string",
+            default: "",
+            section: "Appearance"
+        },
+        hidden_fields: {
+            label: "Hidden Fields (comma separated)",
+            type: "string",
+            default: "",
+            section: "Appearance"
+        },
+        highlight_color: {
+            label: "Selected Row Highlight Color",
+            type: "string",
+            default: "#EB0037",
+            section: "Appearance"
+        },
+        conditional_formatting_json: {
+            label: "Conditional Formatting JSON",
+            type: "string",
+            default: "",
+            section: "Appearance"
+        },
         slider_columns: {
-            label: "Slider columns (0-based visible column indexes; comma/newline separated)",
+            label: "Slider Columns (for fields 0 to 100)",
             type: "string",
             default: "",
             section: "Appearance"
         },
 
         yes_no_pill_columns: {
-            label: "Yes/No Pill columns (0-based visible indexes; JSON array e.g. [2,4,5,6])",
+            label: "Yes/No Pill Columns (for boolean fields)",
             type: "string",
             default: "[]",
             section: "Appearance"
         },
 
         info_icon_columns: {
-            label: "Info icon columns (0-based visible indexes; JSON array e.g. [1,3])",
+            label: "Info Icon Columns (for use with tooltip)",
             type: "string",
             default: "[]",
             section: "Tooltips"
         },
         info_icon_tooltips_json: {
-            label: "Info icon tooltips JSON (keys: colIndex or field name). Value can be literal text OR a field name OR {\"field\":\"view.hidden_field\"}.",
+            label: "Info Icon Tooltips JSON (for use with info icon)",
             type: "string",
             default: "{}",
             section: "Tooltips"
         },
-
         pill_tooltip_columns: {
-            label: "Pill tooltip columns (0-based visible column indexes; JSON array e.g. [2,4])",
+            label: "Pill Tooltip Columns (for boolean fields)",
             type: "string",
             default: "[]",
             section: "Tooltips"
         },
         pill_tooltips_json: {
-            label: "Pill tooltips JSON. Keys: colIndex or field name. Value can be string or {\"yes\":\"...\",\"no\":\"...\"}.",
+            label: "Pill Tooltips JSON (for use with pill formatting)",
             type: "string",
             default: "{}",
             section: "Tooltips"
         },
-
         tiles_json: {
-            label:
-                "Tiles JSON. Supports colIndex (visible index) or field (fully qualified). condition:\"\" = clear. Example: [{\"colIndex\":2,\"condition\":\"Yes\",\"pre_text\":\"AT helped with \",\"post_text\":\" of these sales\"}]",
+            label: "Tiles JSON (to summarise boolean fields)",
             type: "string",
             default: "[]",
             section: "Behaviour"
@@ -614,19 +654,27 @@ looker.plugins.visualizations.add({
         wrap.className = "sg-tiles-wrap";
 
         tiles.forEach((t) => {
-            const {count, fieldName} = this._computeTileCount(t, visibleFields, allRowsWithIndex, getRaw);
+            const { count, fieldName } =
+                this._computeTileCount(t, visibleFields, allRowsWithIndex, getRaw);
+
             const isClearTile = !t.condition;
+
+            // Do NOT render tiles where count = 0
+            // (but still render the clear tile if you use one)
+            if (!isClearTile && count === 0) return;
+
             const clickable = isClearTile || (!!fieldName && !!t.condition);
 
             const tileEl = document.createElement("div");
             tileEl.className = "sg-tile" + (clickable ? " sg-clickable" : "");
+
             tileEl.innerHTML = `
-        <div class="sg-tile-text">
-          ${this._escapeHTML(t.pre_text)}
-          <span class="sg-tile-number">${this._escapeHTML(count)}</span>
-          ${this._escapeHTML(t.post_text)}
-        </div>
-      `;
+                <div class="sg-tile-text">
+                  ${this._escapeHTML(t.pre_text)}
+                  <span class="sg-tile-number">${this._escapeHTML(count)}</span>
+                  ${this._escapeHTML(t.post_text)}
+                </div>
+              `;
 
             if (clickable) {
                 tileEl.addEventListener("click", (e) => {
@@ -922,7 +970,7 @@ looker.plugins.visualizations.add({
                 const fieldName = th.getAttribute("data-sort-field");
                 if (fieldName) {
                     if (!viz._sortState || viz._sortState.fieldName !== fieldName) {
-                        viz._sortState = { fieldName, direction: "asc" };
+                        viz._sortState = {fieldName, direction: "asc"};
                     } else {
                         viz._sortState.direction = viz._sortState.direction === "asc" ? "desc" : "asc";
                     }
