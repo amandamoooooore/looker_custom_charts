@@ -1,127 +1,127 @@
+//frozen tiles and column headers
+
 looker.plugins.visualizations.add({
     id: "simple_html_grid_crossfilter",
     label: "Simple Grid (tiles constant + local table filtering)",
-    supports: {crossfilter: true},
+    supports: { crossfilter: true },
 
     options: {
         click_field: {
             label: "Row field to filter on (fully qualified name)",
             type: "string",
             default: "",
-            section: "Behaviour"
+            section: "Behaviour",
         },
         groups_json: {
             label: "Column groups JSON (optional)",
             type: "string",
             default: "",
-            section: "Behaviour"
+            section: "Behaviour",
         },
         column_labels_json: {
             label: "Column Labels JSON (optional)",
             type: "string",
             default: "",
-            section: "Behaviour"
+            section: "Behaviour",
         },
         column_order_json: {
             label: "Column Order JSON (0-based visible indexes; e.g. [0,1,6,2,3])",
             type: "string",
             default: "",
-            section: "Behaviour"
+            section: "Behaviour",
         },
         enable_sorting: {
             label: "Enable Column Sorting",
             type: "boolean",
             default: true,
-            section: "Behaviour"
+            section: "Behaviour",
         },
         default_sort_field: {
             label: "Default Sort Field (fully qualified name)",
             type: "string",
             default: "",
-            section: "Behaviour"
+            section: "Behaviour",
         },
         default_sort_direction: {
             label: "Default Sort Direction",
             type: "string",
             display: "select",
-            values: [{Ascending: "asc"}, {Descending: "desc"}],
+            values: [{ Ascending: "asc" }, { Descending: "desc" }],
             default: "asc",
-            section: "Behaviour"
+            section: "Behaviour",
         },
         default_column_width: {
             label: "Default Column Width (px)",
             type: "number",
             default: 110,
-            section: "Appearance"
+            section: "Appearance",
         },
         column_widths_json: {
             label: "Column Widths JSON",
             type: "string",
             default: "",
-            section: "Appearance"
+            section: "Appearance",
         },
         hidden_fields: {
             label: "Hidden Fields (comma separated)",
             type: "string",
             default: "",
-            section: "Appearance"
+            section: "Appearance",
         },
         highlight_color: {
             label: "Selected Row Highlight Color",
             type: "string",
             default: "#EB0037",
-            section: "Appearance"
+            section: "Appearance",
         },
         conditional_formatting_json: {
             label: "Conditional Formatting JSON",
             type: "string",
             default: "",
-            section: "Appearance"
+            section: "Appearance",
         },
         slider_columns: {
             label: "Slider Columns (for fields 0 to 100)",
             type: "string",
             default: "",
-            section: "Appearance"
+            section: "Appearance",
         },
-
         yes_no_pill_columns: {
             label: "Yes/No Pill Columns (for boolean fields)",
             type: "string",
             default: "[]",
-            section: "Appearance"
+            section: "Appearance",
         },
-
         info_icon_columns: {
             label: "Info Icon Columns (for use with tooltip)",
             type: "string",
             default: "[]",
-            section: "Tooltips"
+            section: "Tooltips",
         },
         info_icon_tooltips_json: {
             label: "Info Icon Tooltips JSON (for use with info icon)",
             type: "string",
             default: "{}",
-            section: "Tooltips"
+            section: "Tooltips",
         },
         pill_tooltip_columns: {
             label: "Pill Tooltip Columns (for boolean fields)",
             type: "string",
             default: "[]",
-            section: "Tooltips"
+            section: "Tooltips",
         },
         pill_tooltips_json: {
             label: "Pill Tooltips JSON (for use with pill formatting)",
             type: "string",
             default: "{}",
-            section: "Tooltips"
+            section: "Tooltips",
         },
         tiles_json: {
             label: "Tiles JSON (to summarise boolean fields)",
             type: "string",
             default: "[]",
-            section: "Behaviour"
-        }
+            section: "Behaviour",
+        },
     },
 
     _sortState: null,
@@ -145,18 +145,32 @@ looker.plugins.visualizations.add({
                 this._lastConfig,
                 this._lastQueryResponse,
                 this._lastDetails || {},
-                function () {
-                }
+                function () {}
             );
         }
     },
 
     create(element) {
+        // IMPORTANT CHANGE:
+        // - tiles area is fixed (not inside the scroller)
+        // - only the table area scrolls
         element.innerHTML = `
       <div id="simple_grid_root"
-           style="width:100%;height:100%;overflow:auto;font-family:'Roboto','Helvetica Neue',Helvetica,Arial,sans-serif;">
-        <div id="sg_tiles" style="padding:18px 16px 40px 16px;"></div>
-        <div id="simple_grid_container" style="padding:0 16px 16px 16px; font-size:12px;"></div>
+           style="width:100%;height:100%;display:flex;flex-direction:column;
+                  font-family:'Roboto','Helvetica Neue',Helvetica,Arial,sans-serif;">
+
+        <!-- Tiles: fixed, always visible -->
+        <div id="sg_tiles_wrap"
+             style="flex:0 0 auto;background:#fff;position:relative;z-index:10;">
+          <div id="sg_tiles" style="padding:18px 16px 14px 16px;"></div>
+        </div>
+
+        <!-- Table scroller: ONLY this area scrolls -->
+        <div id="sg_table_scroller"
+             style="flex:1 1 auto;min-height:0;overflow:auto;padding:0 16px 16px 16px;">
+          <div id="simple_grid_container" style="font-size:12px;"></div>
+        </div>
+
         <div class="sg-tooltip" id="sg_tooltip"></div>
       </div>
     `;
@@ -164,7 +178,7 @@ looker.plugins.visualizations.add({
         // tooltip element
         this._tooltipEl = element.querySelector("#sg_tooltip");
 
-        // fast tooltip (no delay) using event delegation
+        // event delegation on the root
         const root = element.querySelector("#simple_grid_root");
         root.addEventListener("mousemove", (e) => {
             if (!this._tooltipEl || !this._tooltipTarget) return;
@@ -196,7 +210,9 @@ looker.plugins.visualizations.add({
             style.id = "simple_grid_crossfilter_css";
             style.textContent = `
         /* --- tiles --- */
-        
+        #sg_tiles_wrap{
+          border-bottom: 1px solid #e5e7eb;
+        }
         #sg_tiles .sg-tiles-wrap{
           display:flex;
           justify-content:center;
@@ -265,7 +281,7 @@ looker.plugins.visualizations.add({
           pointer-events: none;
         }
 
-        /* YES/NO pills (match slider height: 16px) */
+        /* YES/NO pills */
         #simple_grid_container .sg-pill{
           display:inline-flex;
           align-items:center;
@@ -309,10 +325,6 @@ looker.plugins.visualizations.add({
           flex:0 0 auto;
           cursor: pointer;
         }
-        
-        #simple_grid_root{
-          padding: 40px 0px 0px 0px;
-        }
 
         /* Custom tooltip (fast) */
         #simple_grid_root .sg-tooltip{
@@ -349,7 +361,6 @@ looker.plugins.visualizations.add({
         let left = x + pad;
         let top = y + pad;
 
-        // keep on screen
         const rect = this._tooltipEl.getBoundingClientRect();
         const vw = window.innerWidth;
         const vh = window.innerHeight;
@@ -380,9 +391,9 @@ looker.plugins.visualizations.add({
         if (!str) return set;
         String(str)
             .split(/[\n,]/)
-            .map(s => s.trim())
+            .map((s) => s.trim())
             .filter(Boolean)
-            .forEach(f => set.add(f));
+            .forEach((f) => set.add(f));
         return set;
     },
 
@@ -391,9 +402,9 @@ looker.plugins.visualizations.add({
         if (!str) return set;
         String(str)
             .split(/[\n,]/)
-            .map(s => s.trim())
+            .map((s) => s.trim())
             .filter(Boolean)
-            .forEach(x => {
+            .forEach((x) => {
                 const n = Number(x);
                 if (Number.isInteger(n) && n >= 0) set.add(n);
             });
@@ -407,12 +418,11 @@ looker.plugins.visualizations.add({
         try {
             const arr = JSON.parse(s);
             if (!Array.isArray(arr)) return set;
-            arr.forEach(x => {
+            arr.forEach((x) => {
                 const n = Number(x);
                 if (Number.isInteger(n) && n >= 0) set.add(n);
             });
-        } catch (e) {
-        }
+        } catch (e) {}
         return set;
     },
 
@@ -421,7 +431,7 @@ looker.plugins.visualizations.add({
         if (!s) return {};
         try {
             const obj = JSON.parse(s);
-            return (obj && typeof obj === "object" && !Array.isArray(obj)) ? obj : {};
+            return obj && typeof obj === "object" && !Array.isArray(obj) ? obj : {};
         } catch (e) {
             return {};
         }
@@ -475,9 +485,8 @@ looker.plugins.visualizations.add({
         const fill = this._sliderColorFor(value);
         const markerLeftCalc = `calc(var(--sg-inset) + (100% - (2 * var(--sg-inset))) * ${value} / 100)`;
 
-        const markerHTML = value > 0
-            ? `<div class="sg-slider-marker" style="left:${markerLeftCalc};"></div>`
-            : "";
+        const markerHTML =
+            value > 0 ? `<div class="sg-slider-marker" style="left:${markerLeftCalc};"></div>` : "";
 
         return `
       <div class="sg-slider-wrap">
@@ -489,34 +498,24 @@ looker.plugins.visualizations.add({
     `;
     },
 
-    // YES/NO pill with FAST tooltip via data-sg-tip (NOT title)
     _renderYesNoPillHTML(value, tooltipText) {
         const v = String(value ?? "").trim().toLowerCase();
-
-        const tipAttr = tooltipText
-            ? ` data-sg-tip="${this._escapeHTML(tooltipText)}"`
-            : "";
+        const tipAttr = tooltipText ? ` data-sg-tip="${this._escapeHTML(tooltipText)}"` : "";
 
         if (v === "yes" || v === "y" || v === "true") {
             return `<span class="sg-pill sg-pill-yes"${tipAttr}>YES</span>`;
         }
-
         if (v === "no" || v === "n" || v === "false") {
             return `<span class="sg-pill sg-pill-no"${tipAttr}>NO</span>`;
         }
-
         return null;
     },
 
-    // resolves tooltip spec that can be:
-    // - string literal
-    // - string field reference (hidden field is OK)
-    // - object: { field: "view.hidden_field" } or { text: "literal" }
-    _resolveTooltipFromSpec({spec, row, getRendered, getRaw}) {
+    _resolveTooltipFromSpec({ spec, row, getRendered, getRaw }) {
         if (spec === null || spec === undefined) return "";
 
         if (typeof spec === "object" && !Array.isArray(spec)) {
-            const fieldRef = (typeof spec.field === "string") ? spec.field.trim() : "";
+            const fieldRef = typeof spec.field === "string" ? spec.field.trim() : "";
             if (fieldRef && row && row[fieldRef]) {
                 const rendered = getRendered(row, fieldRef);
                 if (rendered !== null && rendered !== undefined && String(rendered).trim() !== "") return String(rendered);
@@ -544,17 +543,15 @@ looker.plugins.visualizations.add({
         return "";
     },
 
-    // Pill tooltips: supports string or {yes/no}
-    _resolvePillTooltip({tooltipsObj, colIndex, fieldName, rawValue, row, getRendered, getRaw}) {
+    _resolvePillTooltip({ tooltipsObj, colIndex, fieldName, rawValue, row, getRendered, getRaw }) {
         if (!tooltipsObj) return "";
 
         const byIndex = tooltipsObj[String(colIndex)];
         const byField = tooltipsObj[fieldName];
-        const chosen = (byIndex !== undefined) ? byIndex : byField;
+        const chosen = byIndex !== undefined ? byIndex : byField;
 
         if (chosen === undefined || chosen === null) return "";
 
-        // string = literal tooltip OR field reference
         if (typeof chosen === "string") {
             const s = chosen.trim();
             if (!s) return "";
@@ -565,12 +562,10 @@ looker.plugins.visualizations.add({
                 if (raw !== null && raw !== undefined && String(raw).trim() !== "") return String(raw);
                 return "";
             }
-            return s; // literal
+            return s;
         }
 
-        // object forms:
         if (typeof chosen === "object" && !Array.isArray(chosen)) {
-            // NEW: { field: "view.hidden_field" } or { text: "literal" }
             if (typeof chosen.field === "string" && chosen.field.trim()) {
                 const f = chosen.field.trim();
                 if (row && row[f]) {
@@ -583,18 +578,16 @@ looker.plugins.visualizations.add({
             }
             if (typeof chosen.text === "string") return chosen.text;
 
-            // existing: { yes:"...", no:"..." }
             const v = String(rawValue ?? "").trim().toLowerCase();
-            const isYes = (v === "yes" || v === "y" || v === "true");
-            const isNo = (v === "no" || v === "n" || v === "false");
-            if (isYes) return (typeof chosen.yes === "string") ? chosen.yes : "";
-            if (isNo) return (typeof chosen.no === "string") ? chosen.no : "";
+            const isYes = v === "yes" || v === "y" || v === "true";
+            const isNo = v === "no" || v === "n" || v === "false";
+            if (isYes) return typeof chosen.yes === "string" ? chosen.yes : "";
+            if (isNo) return typeof chosen.no === "string" ? chosen.no : "";
         }
 
         return "";
     },
 
-    // ---------- Tiles ----------
     _parseTilesJson(str) {
         const s = (str || "").trim();
         if (!s) return [];
@@ -602,34 +595,34 @@ looker.plugins.visualizations.add({
             const arr = JSON.parse(s);
             if (!Array.isArray(arr)) return [];
             return arr
-                .filter(t => t && typeof t === "object")
-                .map(t => ({
+                .filter((t) => t && typeof t === "object")
+                .map((t) => ({
                     field: typeof t.field === "string" ? t.field.trim() : "",
                     colIndex: Number.isInteger(t.colIndex) ? t.colIndex : null,
                     condition: (t.condition ?? "").toString(),
                     pre_text: (t.pre_text ?? "").toString(),
-                    post_text: (t.post_text ?? "").toString()
+                    post_text: (t.post_text ?? "").toString(),
                 }))
-                .filter(t => t.field || (t.colIndex !== null && t.colIndex >= 0));
+                .filter((t) => t.field || (t.colIndex !== null && t.colIndex >= 0));
         } catch (e) {
             return [];
         }
     },
 
     _computeTileCount(tile, visibleFields, allRowsWithIndex, getRaw) {
-        const fieldName = tile.field || (visibleFields[tile.colIndex]?.name);
-        if (!fieldName) return {count: 0, fieldName: null};
+        const fieldName = tile.field || visibleFields[tile.colIndex]?.name;
+        if (!fieldName) return { count: 0, fieldName: null };
 
         const cond = tile.condition;
-        if (!cond) return {count: allRowsWithIndex.length, fieldName};
+        if (!cond) return { count: allRowsWithIndex.length, fieldName };
 
         let count = 0;
-        for (const {row} of allRowsWithIndex) {
+        for (const { row } of allRowsWithIndex) {
             const raw = getRaw(row, fieldName);
             if (raw === null || raw === undefined) continue;
             if (String(raw) === cond) count++;
         }
-        return {count, fieldName};
+        return { count, fieldName };
     },
 
     _setLocalFilter(fieldName, valueStr) {
@@ -654,13 +647,9 @@ looker.plugins.visualizations.add({
         wrap.className = "sg-tiles-wrap";
 
         tiles.forEach((t) => {
-            const { count, fieldName } =
-                this._computeTileCount(t, visibleFields, allRowsWithIndex, getRaw);
+            const { count, fieldName } = this._computeTileCount(t, visibleFields, allRowsWithIndex, getRaw);
 
             const isClearTile = !t.condition;
-
-            // Do NOT render tiles where count = 0
-            // (but still render the clear tile if you use one)
             if (!isClearTile && count === 0) return;
 
             const clickable = isClearTile || (!!fieldName && !!t.condition);
@@ -669,12 +658,12 @@ looker.plugins.visualizations.add({
             tileEl.className = "sg-tile" + (clickable ? " sg-clickable" : "");
 
             tileEl.innerHTML = `
-                <div class="sg-tile-text">
-                  ${this._escapeHTML(t.pre_text)}
-                  <span class="sg-tile-number">${this._escapeHTML(count)}</span>
-                  ${this._escapeHTML(t.post_text)}
-                </div>
-              `;
+        <div class="sg-tile-text">
+          ${this._escapeHTML(t.pre_text)}
+          <span class="sg-tile-number">${this._escapeHTML(count)}</span>
+          ${this._escapeHTML(t.post_text)}
+        </div>
+      `;
 
             if (clickable) {
                 tileEl.addEventListener("click", (e) => {
@@ -698,10 +687,10 @@ looker.plugins.visualizations.add({
         tilesEl.appendChild(wrap);
     },
 
-    // ---------- Main ----------
     async updateAsync(data, element, config, queryResponse, details, done) {
-        const container = document.getElementById("simple_grid_container");
-        const tilesEl = document.getElementById("sg_tiles");
+        // instance-safe selectors
+        const container = element.querySelector("#simple_grid_container");
+        const tilesEl = element.querySelector("#sg_tiles");
 
         this._lastData = data;
         this._lastElement = element;
@@ -713,7 +702,6 @@ looker.plugins.visualizations.add({
         const dims = fields.dimension_like || [];
         const meas = fields.measure_like || [];
 
-        // Row click -> dashboard filter field (fallback to first dimension)
         let filterFieldName = (config.click_field || "").trim();
         if (!filterFieldName && dims[0]) filterFieldName = dims[0].name;
 
@@ -721,7 +709,8 @@ looker.plugins.visualizations.add({
 
         if (!allFields.length) {
             tilesEl.innerHTML = "";
-            container.innerHTML = "<div style='padding:12px;color:#666'>Add some dimensions/measures, then click <b>Run</b>.</div>";
+            container.innerHTML =
+                "<div style='padding:12px;color:#666'>Add some dimensions/measures, then click <b>Run</b>.</div>";
             done();
             return;
         }
@@ -734,7 +723,7 @@ looker.plugins.visualizations.add({
         }
 
         const hiddenSet = this._parseHiddenSet(config.hidden_fields || "");
-        let visibleFields = allFields.filter(f => !hiddenSet.has(f.name));
+        let visibleFields = allFields.filter((f) => !hiddenSet.has(f.name));
 
         if (!visibleFields.length) {
             tilesEl.innerHTML = "";
@@ -757,23 +746,21 @@ looker.plugins.visualizations.add({
         const getCell = (row, fieldName) => row[fieldName] || {};
         const getRaw = (row, fieldName) => {
             const cell = getCell(row, fieldName);
-            return ("value" in cell) ? cell.value : null;
+            return "value" in cell ? cell.value : null;
         };
         const getRendered = (row, fieldName) => {
             const cell = getCell(row, fieldName);
             return cell.html ?? cell.rendered ?? cell.value ?? "";
         };
 
-        const allRowsWithIndex = data.map((row, originalIndex) => ({row, originalIndex}));
+        const allRowsWithIndex = data.map((row, originalIndex) => ({ row, originalIndex }));
 
-        // tiles (constant counts)
         const tiles = this._parseTilesJson(config.tiles_json);
         this._renderTiles(tilesEl, tiles, visibleFields, allRowsWithIndex, getRaw);
 
-        // table rows (local filter applies only here)
         let rowsWithIndex = allRowsWithIndex;
         if (this._activeLocalFilters.size) {
-            rowsWithIndex = rowsWithIndex.filter(({row}) => {
+            rowsWithIndex = rowsWithIndex.filter(({ row }) => {
                 for (const [fname, val] of this._activeLocalFilters.entries()) {
                     const raw = getRaw(row, fname);
                     if (raw === null || raw === undefined) return false;
@@ -783,25 +770,22 @@ looker.plugins.visualizations.add({
             });
         }
 
-        // labels
         let labelOverrides = {};
         try {
-            labelOverrides = config.column_labels_json ? (JSON.parse(config.column_labels_json) || {}) : {};
+            labelOverrides = config.column_labels_json ? JSON.parse(config.column_labels_json) || {} : {};
         } catch (e) {
             labelOverrides = {};
         }
 
-        // widths
         let widthMap = {};
         try {
-            widthMap = config.column_widths_json ? (JSON.parse(config.column_widths_json) || {}) : {};
+            widthMap = config.column_widths_json ? JSON.parse(config.column_widths_json) || {} : {};
         } catch (e) {
             widthMap = {};
         }
+
         const defaultColWidth =
-            Number.isFinite(+config.default_column_width) && +config.default_column_width > 0
-                ? +config.default_column_width
-                : 110;
+            Number.isFinite(+config.default_column_width) && +config.default_column_width > 0 ? +config.default_column_width : 110;
 
         const getColWidth = (fieldName) => {
             const w = widthMap[fieldName];
@@ -815,16 +799,14 @@ looker.plugins.visualizations.add({
             return `min-width:${w}px;max-width:${w}px;`;
         };
 
-        // init default sort
         if (!this._sortState && config.enable_sorting !== false && config.default_sort_field) {
-            const exists = visibleFields.find(f => f.name === config.default_sort_field);
+            const exists = visibleFields.find((f) => f.name === config.default_sort_field);
             if (exists) {
                 const dir = (config.default_sort_direction || "asc").toLowerCase() === "desc" ? "desc" : "asc";
-                this._sortState = {fieldName: exists.name, direction: dir};
+                this._sortState = { fieldName: exists.name, direction: dir };
             }
         }
 
-        // sorting
         if (config.enable_sorting !== false && this._sortState && this._sortState.fieldName) {
             const sortField = this._sortState.fieldName;
             const dir = this._sortState.direction === "desc" ? "desc" : "asc";
@@ -842,8 +824,8 @@ looker.plugins.visualizations.add({
             rowsWithIndex = [...rowsWithIndex].sort((a, b) => {
                 const va = getSortValue(a.row);
                 const vb = getSortValue(b.row);
-                const na = (va === null || va === "");
-                const nb = (vb === null || vb === "");
+                const na = va === null || va === "";
+                const nb = vb === null || vb === "";
                 if (na && nb) return 0;
                 if (na) return 1;
                 if (nb) return -1;
@@ -884,8 +866,8 @@ looker.plugins.visualizations.add({
 
         const highlightColor = (config.highlight_color || "#EB0037").trim() || "#EB0037";
 
-        rowsWithIndex.forEach(({row, originalIndex}) => {
-            const isSelected = (originalIndex === this._selectedRowIndex);
+        rowsWithIndex.forEach(({ row, originalIndex }) => {
+            const isSelected = originalIndex === this._selectedRowIndex;
             const rowStyle = isSelected ? `background:${this._escapeHTML(highlightColor)};color:#ffffff;` : "";
             html += `<tr style="${rowStyle}">`;
 
@@ -897,17 +879,16 @@ looker.plugins.visualizations.add({
                 let cellInnerHTML = this._escapeHTML(disp);
                 let isSliderCell = false;
 
-                // pill rendering + pill tooltip (FAST via data-sg-tip)
                 if (yesNoPillIndexSet.has(colIndex)) {
                     const pillTip = pillTooltipIndexSet.has(colIndex)
                         ? this._resolvePillTooltip({
                             tooltipsObj: pillTooltipsObj,
                             colIndex,
                             fieldName: field.name,
-                            rawValue: (raw ?? disp),
+                            rawValue: raw ?? disp,
                             row,
                             getRendered,
-                            getRaw
+                            getRaw,
                         })
                         : "";
 
@@ -915,7 +896,6 @@ looker.plugins.visualizations.add({
                     if (pill) cellInnerHTML = pill;
                 }
 
-                // slider rendering
                 if (sliderIndexSet.has(colIndex)) {
                     const n = this._toNumberMaybe(raw ?? disp);
                     if (n !== null && n >= 0 && n <= 100) {
@@ -924,14 +904,13 @@ looker.plugins.visualizations.add({
                     }
                 }
 
-                // info icon rendering + tooltip from hidden field OR literal (FAST via data-sg-tip)
                 if (infoIconIndexSet.has(colIndex)) {
                     const spec =
-                        (infoIconTooltipsObj[String(colIndex)] !== undefined)
+                        infoIconTooltipsObj[String(colIndex)] !== undefined
                             ? infoIconTooltipsObj[String(colIndex)]
                             : infoIconTooltipsObj[field.name];
 
-                    const tip = this._resolveTooltipFromSpec({spec, row, getRendered, getRaw});
+                    const tip = this._resolveTooltipFromSpec({ spec, row, getRendered, getRaw });
                     const tipAttr = tip ? ` data-sg-tip="${this._escapeHTML(tip)}"` : "";
 
                     cellInnerHTML = `
@@ -965,12 +944,11 @@ looker.plugins.visualizations.add({
             const th = evt.target.closest("th[data-sort-field]");
             const cell = evt.target.closest("td");
 
-            // Sorting
             if (th && config.enable_sorting !== false) {
                 const fieldName = th.getAttribute("data-sort-field");
                 if (fieldName) {
                     if (!viz._sortState || viz._sortState.fieldName !== fieldName) {
-                        viz._sortState = {fieldName, direction: "asc"};
+                        viz._sortState = { fieldName, direction: "asc" };
                     } else {
                         viz._sortState.direction = viz._sortState.direction === "asc" ? "desc" : "asc";
                     }
@@ -984,23 +962,22 @@ looker.plugins.visualizations.add({
             const origIndex = Number(cell.getAttribute("data-orig-index"));
             if (!Number.isInteger(origIndex) || origIndex < 0) return;
 
-            // highlight only (does not change rows locally)
             viz._selectedRowIndex = origIndex;
 
-            // Push crossfilter to dashboard (like your older version)
             if (filterFieldName && viz._lastData && viz._lastData[origIndex]) {
                 const row = viz._lastData[origIndex];
 
-                // Use the same helpers already in updateAsync scope:
                 const rawForFilter = getRaw(row, filterFieldName);
                 const displayForFilter = getRendered(row, filterFieldName);
 
                 if (rawForFilter !== null && rawForFilter !== undefined) {
-                    viz.trigger("filter", [{
-                        field: filterFieldName,
-                        value: String(rawForFilter),
-                        formatted: String(displayForFilter ?? rawForFilter)
-                    }]);
+                    viz.trigger("filter", [
+                        {
+                            field: filterFieldName,
+                            value: String(rawForFilter),
+                            formatted: String(displayForFilter ?? rawForFilter),
+                        },
+                    ]);
                 }
             }
 
@@ -1008,5 +985,5 @@ looker.plugins.visualizations.add({
         };
 
         done();
-    }
+    },
 });
