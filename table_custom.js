@@ -1,4 +1,4 @@
-//adding slider tooltip
+//adding selected row border
 
 looker.plugins.visualizations.add({
     id: "simple_html_grid_crossfilter",
@@ -69,7 +69,7 @@ looker.plugins.visualizations.add({
             section: "Appearance",
         },
         highlight_color: {
-            label: "Selected Row Highlight Color",
+            label: "Selected Row Border Color",
             type: "string",
             default: "#EB0037",
             section: "Appearance",
@@ -253,6 +253,13 @@ looker.plugins.visualizations.add({
         #simple_grid_container table.simple-grid { border-collapse: collapse; width: 100%; }
         #simple_grid_container table.simple-grid tbody tr:nth-child(even) { background: #f7f8fd; }
         #simple_grid_container table.simple-grid tbody tr:hover { background: #eef2ff; }
+
+        /* NEW: selected row = border only (no fill) */
+        #simple_grid_root { --sg-selected-border: #EB0037; }
+        #simple_grid_container table.simple-grid tbody tr.sg-selected{
+          outline: 2px solid var(--sg-selected-border);
+          outline-offset: -2px;
+        }
 
         /* sliders */
         #simple_grid_container .sg-slider-wrap {
@@ -485,15 +492,11 @@ looker.plugins.visualizations.add({
         return "#34c759";
     },
 
-    // UPDATED: allow tooltip on slider via data-sg-tip on the slider wrapper
     _renderSliderHTML(v, tooltipText) {
         const value = Math.max(0, Math.min(100, v));
         const fill = this._sliderColorFor(value);
         const markerLeftCalc = `calc(var(--sg-inset) + (100% - (2 * var(--sg-inset))) * ${value} / 100)`;
-
-        const markerHTML =
-            value > 0 ? `<div class="sg-slider-marker" style="left:${markerLeftCalc};"></div>` : "";
-
+        const markerHTML = value > 0 ? `<div class="sg-slider-marker" style="left:${markerLeftCalc};"></div>` : "";
         const tipAttr = tooltipText ? ` data-sg-tip="${this._escapeHTML(tooltipText)}"` : "";
 
         return `
@@ -696,7 +699,6 @@ looker.plugins.visualizations.add({
     },
 
     async updateAsync(data, element, config, queryResponse, details, done) {
-        // instance-safe selectors
         const container = element.querySelector("#simple_grid_container");
         const tilesEl = element.querySelector("#sg_tiles");
 
@@ -751,7 +753,6 @@ looker.plugins.visualizations.add({
         const infoIconTooltipsObj = this._parseJsonObject(config.info_icon_tooltips_json || "{}");
         const pillTooltipsObj = this._parseJsonObject(config.pill_tooltips_json || "{}");
 
-        // NEW: slider tooltips object (single option)
         const sliderTooltipsObj = this._parseJsonObject(config.slider_tooltips_json || "{}");
 
         const getCell = (row, fieldName) => row[fieldName] || {};
@@ -796,9 +797,7 @@ looker.plugins.visualizations.add({
         }
 
         const defaultColWidth =
-            Number.isFinite(+config.default_column_width) && +config.default_column_width > 0
-                ? +config.default_column_width
-                : 110;
+            Number.isFinite(+config.default_column_width) && +config.default_column_width > 0 ? +config.default_column_width : 110;
 
         const getColWidth = (fieldName) => {
             const w = widthMap[fieldName];
@@ -850,6 +849,11 @@ looker.plugins.visualizations.add({
             });
         }
 
+        // NEW: set border colour via CSS variable each render
+        const highlightColor = (config.highlight_color || "#EB0037").trim() || "#EB0037";
+        const root = element.querySelector("#simple_grid_root");
+        if (root) root.style.setProperty("--sg-selected-border", highlightColor);
+
         // render table
         let html = `<table class="simple-grid"><thead><tr>`;
 
@@ -875,12 +879,10 @@ looker.plugins.visualizations.add({
         }
         html += `</tr></thead><tbody>`;
 
-        const highlightColor = (config.highlight_color || "#EB0037").trim() || "#EB0037";
-
         rowsWithIndex.forEach(({ row, originalIndex }) => {
             const isSelected = originalIndex === this._selectedRowIndex;
-            const rowStyle = isSelected ? `background:${this._escapeHTML(highlightColor)};color:#ffffff;` : "";
-            html += `<tr style="${rowStyle}">`;
+            const rowClass = isSelected ? " class=\"sg-selected\"" : "";
+            html += `<tr${rowClass}>`;
 
             visibleFields.forEach((field, colIndex) => {
                 const raw = getRaw(row, field.name);
@@ -910,8 +912,6 @@ looker.plugins.visualizations.add({
                 if (sliderIndexSet.has(colIndex)) {
                     const n = this._toNumberMaybe(raw ?? disp);
                     if (n !== null && n >= 0 && n <= 100) {
-                        // NEW: per-slider tooltip using ONE option (slider_tooltips_json)
-                        // Priority: by column index, then by field name
                         const spec =
                             sliderTooltipsObj[String(colIndex)] !== undefined
                                 ? sliderTooltipsObj[String(colIndex)]
