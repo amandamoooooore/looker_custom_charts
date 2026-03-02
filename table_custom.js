@@ -1,4 +1,4 @@
-//frozen tiles and column headers
+//adding slider tooltip
 
 looker.plugins.visualizations.add({
     id: "simple_html_grid_crossfilter",
@@ -86,6 +86,14 @@ looker.plugins.visualizations.add({
             default: "",
             section: "Appearance",
         },
+
+        slider_tooltips_json: {
+            label: 'Slider Tooltips JSON (map col index or field name -> tooltip spec; e.g. {"6":{"field":"view.tip"}})',
+            type: "string",
+            default: "{}",
+            section: "Tooltips",
+        },
+
         yes_no_pill_columns: {
             label: "Yes/No Pill Columns (for boolean fields)",
             type: "string",
@@ -151,9 +159,6 @@ looker.plugins.visualizations.add({
     },
 
     create(element) {
-        // IMPORTANT CHANGE:
-        // - tiles area is fixed (not inside the scroller)
-        // - only the table area scrolls
         element.innerHTML = `
       <div id="simple_grid_root"
            style="width:100%;height:100%;display:flex;flex-direction:column;
@@ -480,7 +485,8 @@ looker.plugins.visualizations.add({
         return "#34c759";
     },
 
-    _renderSliderHTML(v) {
+    // UPDATED: allow tooltip on slider via data-sg-tip on the slider wrapper
+    _renderSliderHTML(v, tooltipText) {
         const value = Math.max(0, Math.min(100, v));
         const fill = this._sliderColorFor(value);
         const markerLeftCalc = `calc(var(--sg-inset) + (100% - (2 * var(--sg-inset))) * ${value} / 100)`;
@@ -488,8 +494,10 @@ looker.plugins.visualizations.add({
         const markerHTML =
             value > 0 ? `<div class="sg-slider-marker" style="left:${markerLeftCalc};"></div>` : "";
 
+        const tipAttr = tooltipText ? ` data-sg-tip="${this._escapeHTML(tooltipText)}"` : "";
+
         return `
-      <div class="sg-slider-wrap">
+      <div class="sg-slider-wrap"${tipAttr}>
         <div class="sg-slider-track">
           <div class="sg-slider-fill" style="background:${this._escapeHTML(fill)};"></div>
         </div>
@@ -743,6 +751,9 @@ looker.plugins.visualizations.add({
         const infoIconTooltipsObj = this._parseJsonObject(config.info_icon_tooltips_json || "{}");
         const pillTooltipsObj = this._parseJsonObject(config.pill_tooltips_json || "{}");
 
+        // NEW: slider tooltips object (single option)
+        const sliderTooltipsObj = this._parseJsonObject(config.slider_tooltips_json || "{}");
+
         const getCell = (row, fieldName) => row[fieldName] || {};
         const getRaw = (row, fieldName) => {
             const cell = getCell(row, fieldName);
@@ -785,7 +796,9 @@ looker.plugins.visualizations.add({
         }
 
         const defaultColWidth =
-            Number.isFinite(+config.default_column_width) && +config.default_column_width > 0 ? +config.default_column_width : 110;
+            Number.isFinite(+config.default_column_width) && +config.default_column_width > 0
+                ? +config.default_column_width
+                : 110;
 
         const getColWidth = (fieldName) => {
             const w = widthMap[fieldName];
@@ -833,9 +846,7 @@ looker.plugins.visualizations.add({
                 if (typeof va === "number" && typeof vb === "number") {
                     return dir === "asc" ? va - vb : vb - va;
                 }
-                return dir === "asc"
-                    ? String(va).localeCompare(String(vb))
-                    : String(vb).localeCompare(String(va));
+                return dir === "asc" ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
             });
         }
 
@@ -899,7 +910,16 @@ looker.plugins.visualizations.add({
                 if (sliderIndexSet.has(colIndex)) {
                     const n = this._toNumberMaybe(raw ?? disp);
                     if (n !== null && n >= 0 && n <= 100) {
-                        cellInnerHTML = this._renderSliderHTML(Math.round(n));
+                        // NEW: per-slider tooltip using ONE option (slider_tooltips_json)
+                        // Priority: by column index, then by field name
+                        const spec =
+                            sliderTooltipsObj[String(colIndex)] !== undefined
+                                ? sliderTooltipsObj[String(colIndex)]
+                                : sliderTooltipsObj[field.name];
+
+                        const sliderTip = this._resolveTooltipFromSpec({ spec, row, getRendered, getRaw });
+
+                        cellInnerHTML = this._renderSliderHTML(Math.round(n), sliderTip);
                         isSliderCell = true;
                     }
                 }
