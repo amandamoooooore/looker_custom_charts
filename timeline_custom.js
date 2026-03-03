@@ -211,7 +211,7 @@ looker.plugins.visualizations.add({
 
                 plotOptions: {
                     series: {
-                        // timeline baseline settings (kept from your version)
+                        // timeline baseline settings
                         lineWidth: 16,
                         lineColor: null,
                         borderWidth: 4,
@@ -231,7 +231,7 @@ looker.plugins.visualizations.add({
                                 const idx = text.indexOf(":");
 
                                 if (idx === -1) {
-                                    return text; // no colon → leave unchanged
+                                    return text; 
                                 }
 
                                 const left = text.substring(0, idx + 1);
