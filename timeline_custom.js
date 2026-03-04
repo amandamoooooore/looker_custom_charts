@@ -1,4 +1,4 @@
-//timeline
+//tooltip change
 looker.plugins.visualizations.add({
     id: "custom_timeline",
     label: "Custom Timeline (Highcharts)",
@@ -10,6 +10,12 @@ looker.plugins.visualizations.add({
             default: 5,
             min: 1,
             section: "Chart"
+        },
+        showTooltipHeader: {
+            type: "boolean",
+            label: "Show tooltip header",
+            default: true,
+            section: "Tooltip"
         },
         showSummary: {
             type: "boolean",
@@ -38,13 +44,35 @@ looker.plugins.visualizations.add({
     },
 
     create: function (element) {
+        const uid = `hc_timeline_${Math.random().toString(16).slice(2)}`;
+        this._uid = uid;
+
         element.innerHTML = `
       <style>
         .hc-timeline-wrap { width: 100%; height: 100%; }
+
+        /* Force Highcharts HTML tooltip to be fully opaque (container + inner span) */
+        #${uid} .highcharts-tooltip {
+          background: #ffffff !important;
+          opacity: 1 !important;
+          filter: none !important;
+          box-shadow: 0 2px 10px rgba(0,0,0,0.25) !important;
+          border-radius: 4px !important;
+        }
+
+        #${uid} .highcharts-tooltip span {
+          background: #ffffff !important;
+          opacity: 1 !important;
+          display: block !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          border-radius: 4px !important;
+        }
       </style>
-      <div class="hc-timeline-wrap"></div>
+      <div id="${uid}" class="hc-timeline-wrap"></div>
     `;
-        this._container = element.querySelector(".hc-timeline-wrap");
+
+        this._container = element.querySelector(`#${uid}`);
         this._chart = null;
     },
 
@@ -88,6 +116,15 @@ looker.plugins.visualizations.add({
         const finish = () => typeof done === "function" && done();
 
         try {
+            const Highcharts = window.Highcharts;
+
+            if (!Highcharts) {
+                this._container.innerHTML =
+                    "Highcharts is not available. Ensure looker_adapter.js sets window.Highcharts.";
+                finish();
+                return;
+            }
+
             if (!queryResponse?.fields?.dimension_like?.length) {
                 this._container.innerHTML = "No dimension fields found.";
                 finish();
@@ -137,14 +174,11 @@ looker.plugins.visualizations.add({
                     name: String(readValue(tileFieldName) ?? ""),
                     custom: { tooltipText: String(readValue(tooltipFieldName) ?? "") },
 
-                    // marker color
                     color: accentColor,
                     marker: { fillColor: accentColor, lineColor: accentColor },
 
-                    // No connector lines
                     connectorWidth: 0,
 
-                    // Boxes always white; border uses accent
                     dataLabels: {
                         backgroundColor: "#FFFFFF",
                         borderColor: accentColor
@@ -153,6 +187,7 @@ looker.plugins.visualizations.add({
             });
 
             const showSummary = !!config.showSummary;
+            const showTooltipHeader = config.showTooltipHeader !== false;
 
             const chartOptions = {
                 chart: {
@@ -186,32 +221,37 @@ looker.plugins.visualizations.add({
 
                 tooltip: {
                     useHTML: true,
+                    padding: 0,
+                    borderWidth: 3.5,
+                    shadow: true,
+                    style: { color: "#222" },
                     formatter: function () {
                         const fullHeader = this.point?.name || "";
                         const body = this.point?.custom?.tooltipText || "";
 
-                        const idx = fullHeader.indexOf(":");
+                        if (!showTooltipHeader) {
+                            return `<div style="padding:12px">${body}</div>`;
+                        }
 
+                        const idx = fullHeader.indexOf(":");
                         let formattedHeader = fullHeader;
 
                         if (idx !== -1) {
-                            const left = fullHeader.substring(0, idx);      // left of :
-                            const right = fullHeader.substring(idx);        // includes :
-
+                            const left = fullHeader.substring(0, idx);
+                            const right = fullHeader.substring(idx);
                             formattedHeader = `<strong>${left}</strong>${right}`;
                         }
 
                         return `
-                      ${formattedHeader}
-                      <br><br>
-                      ${body}
-                    `;
+              <div style="padding:12px">
+                ${formattedHeader}<br><br>${body}
+              </div>
+            `;
                     }
                 },
 
                 plotOptions: {
                     series: {
-                        // timeline baseline settings
                         lineWidth: 16,
                         lineColor: null,
                         borderWidth: 4,
@@ -227,16 +267,11 @@ looker.plugins.visualizations.add({
                             useHTML: true,
                             formatter: function () {
                                 const text = this.point.name || "";
-
                                 const idx = text.indexOf(":");
-
-                                if (idx === -1) {
-                                    return text; 
-                                }
+                                if (idx === -1) return text;
 
                                 const left = text.substring(0, idx + 1);
                                 const right = text.substring(idx + 1);
-
                                 return `<strong>${left}</strong>${right}`;
                             },
                             style: {
