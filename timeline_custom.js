@@ -1,4 +1,10 @@
-//tooltip change
+//imports
+import Highcharts from "https://code.highcharts.com/highcharts.js";
+import Timeline from "https://code.highcharts.com/modules/timeline.js";
+
+// Init Highcharts modules once (shared for all vizzes)
+Timeline(Highcharts);
+
 looker.plugins.visualizations.add({
     id: "custom_timeline",
     label: "Custom Timeline (Highcharts)",
