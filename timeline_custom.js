@@ -1,4 +1,4 @@
-//bundled
+//tile field names
 (() => {
   var __create = Object.create;
   var __defProp = Object.defineProperty;
@@ -8661,6 +8661,16 @@
               return v;
             };
             const tileFieldNames = dims.map((d) => d.name).filter((name) => name.endsWith("_tile"));
+
+            if (!tileFieldNames.length) {
+              this._container.innerHTML =
+                "No *_tile fields found. Dimension names are:<br><pre style='white-space:pre-wrap'>" +
+                dims.map(d => d.name).join("\n") +
+                "</pre>";
+              finish();
+              return;
+            }
+            
             const count = Math.max(
               1,
               Math.min(tileFieldNames.length, Number(config.boxCount) || tileFieldNames.length)
