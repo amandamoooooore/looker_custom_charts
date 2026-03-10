@@ -1,4 +1,4 @@
-//adding selected row border
+//adding optional row numbers
 
 looker.plugins.visualizations.add({
     id: "simple_html_grid_crossfilter",
@@ -60,6 +60,12 @@ looker.plugins.visualizations.add({
             label: "Column Widths JSON",
             type: "string",
             default: "",
+            section: "Appearance",
+        },
+        show_row_numbers: {
+            label: "Show Row Numbers",
+            type: "boolean",
+            default: false,
             section: "Appearance",
         },
         hidden_fields: {
@@ -744,6 +750,9 @@ looker.plugins.visualizations.add({
 
         visibleFields = this._applyColumnOrder(visibleFields, config.column_order_json);
 
+        const showRowNumbers = config.show_row_numbers === true;
+        const rowNumberWidth = 35;
+
         const sliderIndexSet = this._parseIndexSet(config.slider_columns || "");
         const yesNoPillIndexSet = this._parseJsonIndexSet(config.yes_no_pill_columns || "[]");
 
@@ -811,6 +820,8 @@ looker.plugins.visualizations.add({
             return `min-width:${w}px;max-width:${w}px;`;
         };
 
+        const rowNumberWidthStyle = `min-width:${rowNumberWidth}px;max-width:${rowNumberWidth}px;`;
+
         if (!this._sortState && config.enable_sorting !== false && config.default_sort_field) {
             const exists = visibleFields.find((f) => f.name === config.default_sort_field);
             if (exists) {
@@ -857,6 +868,17 @@ looker.plugins.visualizations.add({
         // render table
         let html = `<table class="simple-grid"><thead><tr>`;
 
+        if (showRowNumbers) {
+            html += `
+        <th
+          style="position:sticky;top:0;z-index:4;background:#111a44;color:#fff;
+                 padding:6px 10px;border-bottom:1px solid #e0e0e0;text-align:center;
+                 white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px;font-weight:600;
+                 cursor:default;${rowNumberWidthStyle}">
+          Row No.
+        </th>`;
+        }
+
         for (const f of visibleFields) {
             const override = labelOverrides[f.name];
             let label = override || f.label_short || f.label || f.name;
@@ -879,10 +901,19 @@ looker.plugins.visualizations.add({
         }
         html += `</tr></thead><tbody>`;
 
-        rowsWithIndex.forEach(({ row, originalIndex }) => {
+        rowsWithIndex.forEach(({ row, originalIndex }, displayIndex) => {
             const isSelected = originalIndex === this._selectedRowIndex;
             const rowClass = isSelected ? " class=\"sg-selected\"" : "";
             html += `<tr${rowClass}>`;
+
+            if (showRowNumbers) {
+                html += `
+          <td data-orig-index="${originalIndex}"
+              style="padding:6px 10px;border-bottom:1px solid #f0f0f0;cursor:pointer;white-space:nowrap;overflow:hidden;
+                     text-overflow:ellipsis;font-size:12px;${rowNumberWidthStyle}">
+            ${displayIndex + 1}
+          </td>`;
+            }
 
             visibleFields.forEach((field, colIndex) => {
                 const raw = getRaw(row, field.name);
