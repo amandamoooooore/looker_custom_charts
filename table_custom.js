@@ -1,4 +1,4 @@
-//adding optional row numbers
+//increasing row number width
 
 looker.plugins.visualizations.add({
     id: "simple_html_grid_crossfilter",
@@ -751,7 +751,7 @@ looker.plugins.visualizations.add({
         visibleFields = this._applyColumnOrder(visibleFields, config.column_order_json);
 
         const showRowNumbers = config.show_row_numbers === true;
-        const rowNumberWidth = 35;
+        const rowNumberWidth = 40;
 
         const sliderIndexSet = this._parseIndexSet(config.slider_columns || "");
         const yesNoPillIndexSet = this._parseJsonIndexSet(config.yes_no_pill_columns || "[]");
