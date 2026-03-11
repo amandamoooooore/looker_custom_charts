@@ -1,4 +1,4 @@
-//increasing row number width
+//highlighting selected tile
 
 looker.plugins.visualizations.add({
     id: "simple_html_grid_crossfilter",
@@ -77,7 +77,7 @@ looker.plugins.visualizations.add({
         highlight_color: {
             label: "Selected Row Border Color",
             type: "string",
-            default: "#EB0037",
+            default: "#fbbc04",
             section: "Appearance",
         },
         conditional_formatting_json: {
@@ -141,6 +141,7 @@ looker.plugins.visualizations.add({
     _sortState: null,
     _selectedRowIndex: null,
     _activeLocalFilters: new Map(),
+    _activeTileKey: null,
 
     _lastData: null,
     _lastElement: null,
@@ -235,7 +236,7 @@ looker.plugins.visualizations.add({
           width:180px;
           min-height:92px;
           border:2px solid #111a44;
-          border-radius:2px;
+          border-radius:12px;
           display:flex;
           align-items:center;
           justify-content:center;
@@ -244,6 +245,10 @@ looker.plugins.visualizations.add({
           box-sizing:border-box;
           background:#fff;
           user-select:none;
+          transition: background-color 120ms ease, box-shadow 120ms ease;
+        }
+        #sg_tiles .sg-tile.sg-active{
+          border-color:#fbbc04;
         }
         #sg_tiles .sg-tile .sg-tile-text{
           font-size:14px;
@@ -265,6 +270,7 @@ looker.plugins.visualizations.add({
         #simple_grid_container table.simple-grid tbody tr.sg-selected{
           outline: 2px solid var(--sg-selected-border);
           outline-offset: -2px;
+          border-radius:12px;
         }
 
         /* sliders */
@@ -402,6 +408,16 @@ looker.plugins.visualizations.add({
             .replace(/>/g, "&gt;")
             .replace(/"/g, "&quot;")
             .replace(/'/g, "&#39;");
+    },
+
+    _formatTileCount(n) {
+        const num = Number(n);
+        if (!Number.isFinite(num)) return String(n ?? "");
+        return num.toLocaleString("en-GB");
+    },
+
+    _getTileKey(tile, fieldName) {
+        return `${fieldName || ""}__${tile.condition || ""}__${tile.pre_text || ""}__${tile.post_text || ""}`;
     },
 
     _parseHiddenSet(str) {
@@ -663,21 +679,28 @@ looker.plugins.visualizations.add({
         const wrap = document.createElement("div");
         wrap.className = "sg-tiles-wrap";
 
-        tiles.forEach((t) => {
+        tiles.forEach((t, index) => {
             const { count, fieldName } = this._computeTileCount(t, visibleFields, allRowsWithIndex, getRaw);
 
             const isClearTile = !t.condition;
             if (!isClearTile && count === 0) return;
 
             const clickable = isClearTile || (!!fieldName && !!t.condition);
+            const tileKey = this._getTileKey(t, fieldName);
+
+            if (this._activeTileKey === null && index === 0) {
+                this._activeTileKey = tileKey;
+            }
+
+            const isActive = this._activeTileKey === tileKey;
 
             const tileEl = document.createElement("div");
-            tileEl.className = "sg-tile" + (clickable ? " sg-clickable" : "");
+            tileEl.className = "sg-tile" + (clickable ? " sg-clickable" : "") + (isActive ? " sg-active" : "");
 
             tileEl.innerHTML = `
         <div class="sg-tile-text">
           ${this._escapeHTML(t.pre_text)}
-          <span class="sg-tile-number">${this._escapeHTML(count)}</span>
+          <span class="sg-tile-number">${this._escapeHTML(this._formatTileCount(count))}</span>
           ${this._escapeHTML(t.post_text)}
         </div>
       `;
@@ -685,6 +708,8 @@ looker.plugins.visualizations.add({
             if (clickable) {
                 tileEl.addEventListener("click", (e) => {
                     e.stopPropagation();
+
+                    this._activeTileKey = tileKey;
 
                     if (isClearTile) {
                         this._clearLocalFilters();
@@ -751,7 +776,7 @@ looker.plugins.visualizations.add({
         visibleFields = this._applyColumnOrder(visibleFields, config.column_order_json);
 
         const showRowNumbers = config.show_row_numbers === true;
-        const rowNumberWidth = 40;
+        const rowNumberWidth = 35;
 
         const sliderIndexSet = this._parseIndexSet(config.slider_columns || "");
         const yesNoPillIndexSet = this._parseJsonIndexSet(config.yes_no_pill_columns || "[]");
