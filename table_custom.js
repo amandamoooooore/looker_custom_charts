@@ -1,4 +1,4 @@
-//highlighting selected tile
+//remove grey line
 
 looker.plugins.visualizations.add({
     id: "simple_html_grid_crossfilter",
@@ -223,7 +223,7 @@ looker.plugins.visualizations.add({
             style.textContent = `
         /* --- tiles --- */
         #sg_tiles_wrap{
-          border-bottom: 1px solid #e5e7eb;
+          border-bottom: 1px solid #ffffff;
         }
         #sg_tiles .sg-tiles-wrap{
           display:flex;
