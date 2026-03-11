@@ -1,4 +1,4 @@
-//pagination
+//reduce pagination font
 
 looker.plugins.visualizations.add({
     id: "simple_html_grid_crossfilter",
@@ -389,12 +389,12 @@ looker.plugins.visualizations.add({
           align-items:center;
           justify-content:center;
           box-sizing:border-box;
-          font-size:18px;
-          font-weight:500;
+          font-size:14px;
+          font-weight:400;
           line-height:1;
           cursor:pointer;
           user-select:none;
-        }
+        }        
         #simple_grid_container .sg-page-btn:hover{
           box-shadow:0 2px 10px rgba(0,0,0,0.08);
         }
