@@ -1,4 +1,4 @@
-//adding header tooltips
+//update row number width
 
 looker.plugins.visualizations.add({
     id: "simple_html_grid_crossfilter",
@@ -936,7 +936,7 @@ looker.plugins.visualizations.add({
         visibleFields = this._applyColumnOrder(visibleFields, config.column_order_json);
 
         const showRowNumbers = config.show_row_numbers === true;
-        const rowNumberWidth = 35;
+        const rowNumberWidth = 40;
         const enablePagination = config.enable_pagination === true;
         const rowsPerPage = Math.max(1, Number(config.rows_per_page) || 10);
 
