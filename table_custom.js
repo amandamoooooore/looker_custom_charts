@@ -1,4 +1,4 @@
-//update row number width_
+//update pagination colours
 
 looker.plugins.visualizations.add({
     id: "simple_html_grid_crossfilter",
@@ -436,9 +436,9 @@ looker.plugins.visualizations.add({
           box-shadow:0 2px 10px rgba(0,0,0,0.08);
         }
         #simple_grid_container .sg-page-btn.sg-active{
-          background:#fbbc04;
-          color:#fff;
-          border-color:#fbbc04;
+          background:#111a44;
+          color:#ffffff;
+          border-color:#111a44;
         }
         #simple_grid_container .sg-page-btn.sg-disabled{
           opacity:0.45;
